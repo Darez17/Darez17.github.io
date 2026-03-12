@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Laporan Pemadam + Peta Interaktif</title>
+    <title>Laporan Pemadam + Notifikasi</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Leaflet CSS (peta) -->
@@ -25,7 +25,7 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-3">🚒 Laporan Pemadam + Peta</h1>
+        <h1 class="text-center mb-3">🚒 Laporan Pemadam + Notifikasi</h1>
         
         <!-- Tab navigasi -->
         <ul class="nav nav-tabs nav-fill mb-3" id="myTab" role="tablist">
@@ -176,14 +176,18 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // Fungsi debug
+        // Fungsi debug dengan pesan error yang informatif
         function addLog(message, isError = false) {
             const logEl = document.getElementById('logContent');
             const prefix = isError ? '❌' : '✅';
             logEl.innerHTML = prefix + ' ' + message + '<br>' + logEl.innerHTML;
             if (isError) {
                 document.getElementById('debugPanel').style.display = 'block';
-                document.getElementById('debugMessage').innerText = message;
+                let errorMsg = message;
+                if (message.includes('offline') || message.includes('network') || message.includes('auth/network-request-failed')) {
+                    errorMsg += '<br><strong>🔧 Solusi:</strong> Pastikan domain ini ( ' + window.location.hostname + ' ) sudah ditambahkan di <b>Firebase Console > Authentication > Settings > Authorized domains</b>. Jika menggunakan IP lokal, daftarkan IP tersebut.';
+                }
+                document.getElementById('debugMessage').innerHTML = errorMsg;
             }
         }
 
@@ -192,8 +196,10 @@
             if (snap.val() === true) {
                 addLog('Terhubung ke Firebase Realtime Database');
             } else {
-                addLog('Tidak terhubung ke Firebase (offline)', true);
+                addLog('Tidak terhubung ke Firebase (offline) - periksa authorized domains', true);
             }
+        }, (error) => {
+            addLog('Gagal memantau koneksi: ' + error.message, true);
         });
 
         // Elemen DOM
@@ -221,11 +227,38 @@
         // State autentikasi
         let currentUser = null;
 
+        // ==========  NOTIFIKASI ==========
+        // Minta izin notifikasi saat halaman dimuat (untuk petugas)
+        let notificationPermission = false;
+        if ('Notification' in window) {
+            if (Notification.permission === 'granted') {
+                notificationPermission = true;
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        notificationPermission = true;
+                        addLog('Izin notifikasi diberikan');
+                    }
+                });
+            }
+        } else {
+            addLog('Browser tidak mendukung notifikasi', true);
+        }
+
+        // Fungsi menampilkan notifikasi
+        function showNotification(title, options) {
+            if (!notificationPermission) return;
+            try {
+                new Notification(title, options);
+            } catch (e) {
+                addLog('Gagal menampilkan notifikasi: ' + e.message, true);
+            }
+        }
+
         // ==========  FITUR PETA PEMILIHAN LOKASI (Modal) ==========
         // Inisialisasi peta saat modal ditampilkan
         document.getElementById('mapModal').addEventListener('shown.bs.modal', function () {
             if (!pickerMap) {
-                // Koordinat default Indonesia (Jakarta)
                 const defaultLat = -6.2088;
                 const defaultLng = 106.8456;
                 pickerMap = L.map('mapPicker').setView([defaultLat, defaultLng], 12);
@@ -233,7 +266,6 @@
                     attribution: '&copy; OpenStreetMap contributors'
                 }).addTo(pickerMap);
 
-                // Coba ambil lokasi pengguna untuk memusatkan peta
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
@@ -244,7 +276,6 @@
                     );
                 }
 
-                // Klik pada peta untuk menempatkan marker
                 pickerMap.on('click', (e) => {
                     const { lat, lng } = e.latlng;
                     placeMarker(lat, lng);
@@ -252,7 +283,6 @@
             }
         });
 
-        // Fungsi menempatkan marker (draggable)
         function placeMarker(lat, lng) {
             if (pickerMarker) {
                 pickerMarker.setLatLng([lat, lng]);
@@ -273,15 +303,12 @@
             confirmLocationBtn.disabled = false;
         }
 
-        // Tombol konfirmasi lokasi dari modal
         confirmLocationBtn.addEventListener('click', function () {
             if (selectedLat && selectedLng) {
-                // Isi input hidden
                 latitudeInput.value = selectedLat;
                 longitudeInput.value = selectedLng;
                 coordDisplay.innerText = `(${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)})`;
 
-                // Reverse geocoding untuk mendapatkan alamat perkiraan
                 reverseGeocode(selectedLat, selectedLng, (address) => {
                     if (address) {
                         locationInput.value = address;
@@ -290,13 +317,11 @@
                     }
                 });
 
-                // Tutup modal
                 bootstrap.Modal.getInstance(document.getElementById('mapModal')).hide();
                 addLog(`Lokasi dipilih: ${selectedLat}, ${selectedLng}`);
             }
         });
 
-        // Reverse geocoding dengan Nominatim (gratis)
         function reverseGeocode(lat, lng, callback) {
             const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
             fetch(url, {
@@ -498,10 +523,13 @@
             }
         }
 
-        // Listener data untuk petugas
+        // Listener data untuk petugas (dengan notifikasi)
         function attachReportListener() {
             const reportList = document.getElementById('reportList');
             const emptyMessage = document.getElementById('emptyMessage');
+
+            // Untuk menghindari notifikasi saat pertama kali load, kita gunakan flag
+            let isFirstLoad = true;
 
             function renderReports(snapshot) {
                 const reports = snapshot.val();
@@ -543,12 +571,33 @@
                     `;
                 });
                 reportList.innerHTML = html;
-                // Update peta
                 updatePetugasMap(reportsArray);
                 addLog(`Menampilkan ${reportsArray.length} laporan`);
             }
 
-            reportsRef.off('value');
+            // Listener untuk child_added (laporan baru) agar notifikasi muncul
+            reportsRef.on('child_added', (snapshot) => {
+                // Abaikan jika ini adalah data awal (saat pertama kali halaman dimuat)
+                if (isFirstLoad) return;
+                const report = snapshot.val();
+                if (report && currentUser) {
+                    // Tampilkan notifikasi
+                    showNotification('🚒 Laporan Baru!', {
+                        body: `Dari: ${report.name}\nLokasi: ${report.location}\nJenis: ${report.severity}`,
+                        icon: 'https://cdn-icons-png.flaticon.com/512/484/484167.png', // optional
+                        vibrate: [200, 100, 200]
+                    });
+                    addLog(`Notifikasi: Laporan baru dari ${report.name}`);
+                }
+            });
+
+            // Setelah listener dipasang, kita tandai bahwa data awal sudah selesai dimuat
+            // Kita gunakan timeout untuk memastikan child_added untuk data awal tidak memicu notifikasi
+            setTimeout(() => {
+                isFirstLoad = false;
+            }, 2000);
+
+            // Listener value untuk menampilkan data (tetap ada)
             reportsRef.on('value', renderReports, (error) => {
                 addLog('Error membaca data: ' + error.message, true);
             });
@@ -646,8 +695,9 @@
     <!-- Petunjuk -->
     <div class="container mt-3 small text-muted">
         <hr>
-        <p><strong>✅ Fitur peta telah ditambahkan: Pelapor dapat memilih lokasi di peta, petugas melihat semua laporan di peta.</strong></p>
+        <p><strong>✅ Fitur peta + notifikasi telah ditambahkan: Petugas akan mendapat notifikasi browser saat ada laporan baru.</strong></p>
         <p><strong>🔐 Firebase Auth dan Database tetap seperti semula, kompatibel dengan semua HP.</strong></p>
+        <p><strong>⚠️ Jika koneksi Firebase gagal, pastikan domain <code>${window.location.hostname}</code> sudah ditambahkan di <a href="https://console.firebase.google.com/project/lapor-pemadam-630b0/authentication/settings" target="_blank">Firebase Console > Authentication > Settings > Authorized domains</a>.</strong></p>
     </div>
 </body>
 </html>
