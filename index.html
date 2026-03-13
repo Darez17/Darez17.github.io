@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Laporan Pemadam + Notifikasi</title>
+    <title>Laporan Pemadam + Notifikasi + Navigasi</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Leaflet CSS (peta) -->
@@ -25,7 +25,7 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-3">🚒 Laporan Pemadam + Notifikasi</h1>
+        <h1 class="text-center mb-3">🚒 Laporan Pemadam + Notifikasi + Navigasi</h1>
         
         <!-- Tab navigasi -->
         <ul class="nav nav-tabs nav-fill mb-3" id="myTab" role="tablist">
@@ -108,7 +108,7 @@
                 </div>
             </div>
 
-            <!-- TAB PETUGAS (dengan peta + tabel) -->
+            <!-- TAB PETUGAS (dengan peta + tabel + navigasi) -->
             <div class="tab-pane fade" id="petugas" role="tabpanel">
                 <div class="card shadow-sm">
                     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
@@ -228,7 +228,6 @@
         let currentUser = null;
 
         // ==========  NOTIFIKASI ==========
-        // Minta izin notifikasi saat halaman dimuat (untuk petugas)
         let notificationPermission = false;
         if ('Notification' in window) {
             if (Notification.permission === 'granted') {
@@ -245,7 +244,6 @@
             addLog('Browser tidak mendukung notifikasi', true);
         }
 
-        // Fungsi menampilkan notifikasi
         function showNotification(title, options) {
             if (!notificationPermission) return;
             try {
@@ -256,7 +254,6 @@
         }
 
         // ==========  FITUR PETA PEMILIHAN LOKASI (Modal) ==========
-        // Inisialisasi peta saat modal ditampilkan
         document.getElementById('mapModal').addEventListener('shown.bs.modal', function () {
             if (!pickerMap) {
                 const defaultLat = -6.2088;
@@ -411,7 +408,7 @@
                 });
         });
 
-        // ==========  AUTH & TAB PETUGAS (dengan peta) ==========
+        // ==========  AUTH & TAB PETUGAS (dengan peta dan navigasi) ==========
         auth.onAuthStateChanged((user) => {
             currentUser = user;
             if (user) {
@@ -512,7 +509,8 @@
                             <b>${report.name}</b><br>
                             ${report.location}<br>
                             ${report.severity}<br>
-                            Status: ${report.resolved ? '✅ Selesai' : '⏳ Proses'}
+                            Status: ${report.resolved ? '✅ Selesai' : '⏳ Proses'}<br>
+                            ${report.latitude && report.longitude ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${report.latitude},${report.longitude}" target="_blank">🚗 Navigasi ke lokasi</a>` : 'Koordinat tidak tersedia'}
                         `);
                     marker.addTo(markerGroup);
                     bounds.push([report.latitude, report.longitude]);
@@ -528,7 +526,6 @@
             const reportList = document.getElementById('reportList');
             const emptyMessage = document.getElementById('emptyMessage');
 
-            // Untuk menghindari notifikasi saat pertama kali load, kita gunakan flag
             let isFirstLoad = true;
 
             function renderReports(snapshot) {
@@ -564,6 +561,7 @@
                             <td><span class="badge ${statusClass}">${statusText}</span></td>
                             <td>${resolvedTime}</td>
                             <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="navigateTo('${report.latitude}', '${report.longitude}')" ${report.latitude == null || report.longitude == null ? 'disabled' : ''}>🗺️</button>
                                 <button class="btn btn-sm btn-outline-success" onclick="toggleResolve('${report.id}')">✓</button>
                                 <button class="btn btn-sm btn-outline-danger" onclick="deleteReport('${report.id}')">✗</button>
                             </td>
@@ -575,29 +573,23 @@
                 addLog(`Menampilkan ${reportsArray.length} laporan`);
             }
 
-            // Listener untuk child_added (laporan baru) agar notifikasi muncul
             reportsRef.on('child_added', (snapshot) => {
-                // Abaikan jika ini adalah data awal (saat pertama kali halaman dimuat)
                 if (isFirstLoad) return;
                 const report = snapshot.val();
                 if (report && currentUser) {
-                    // Tampilkan notifikasi
                     showNotification('🚒 Laporan Baru!', {
                         body: `Dari: ${report.name}\nLokasi: ${report.location}\nJenis: ${report.severity}`,
-                        icon: 'https://cdn-icons-png.flaticon.com/512/484/484167.png', // optional
+                        icon: 'https://cdn-icons-png.flaticon.com/512/484/484167.png',
                         vibrate: [200, 100, 200]
                     });
                     addLog(`Notifikasi: Laporan baru dari ${report.name}`);
                 }
             });
 
-            // Setelah listener dipasang, kita tandai bahwa data awal sudah selesai dimuat
-            // Kita gunakan timeout untuk memastikan child_added untuk data awal tidak memicu notifikasi
             setTimeout(() => {
                 isFirstLoad = false;
             }, 2000);
 
-            // Listener value untuk menampilkan data (tetap ada)
             reportsRef.on('value', renderReports, (error) => {
                 addLog('Error membaca data: ' + error.message, true);
             });
@@ -660,6 +652,18 @@
             }
         };
 
+        // ==========  FITUR NAVIGASI (TAMBAHAN) ==========
+        // Fungsi untuk membuka rute ke lokasi kebakaran di Google Maps
+        window.navigateTo = function(lat, lng) {
+            if (lat == null || lng == null) {
+                alert('Koordinat lokasi tidak tersedia untuk laporan ini.');
+                return;
+            }
+            // Buat URL untuk navigasi ke koordinat tujuan
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+            window.open(url, '_blank');
+        };
+
         // Logout
         logoutBtn.addEventListener('click', () => {
             auth.signOut()
@@ -695,7 +699,7 @@
     <!-- Petunjuk -->
     <div class="container mt-3 small text-muted">
         <hr>
-        <p><strong>✅ Fitur peta + notifikasi telah ditambahkan: Petugas akan mendapat notifikasi browser saat ada laporan baru.</strong></p>
+        <p><strong>✅ Fitur navigasi telah ditambahkan: Petugas bisa langsung membuka rute ke lokasi kebakaran melalui tombol 🗺️ di tabel atau link di popup marker.</strong></p>
         <p><strong>🔐 Firebase Auth dan Database tetap seperti semula, kompatibel dengan semua HP.</strong></p>
         <p><strong>⚠️ Jika koneksi Firebase gagal, pastikan domain <code>${window.location.hostname}</code> sudah ditambahkan di <a href="https://console.firebase.google.com/project/lapor-pemadam-630b0/authentication/settings" target="_blank">Firebase Console > Authentication > Settings > Authorized domains</a>.</strong></p>
     </div>
