@@ -157,7 +157,7 @@
 
     <script>
         // =====================================================
-        //  KONFIGURASI FIREBASE (TETAP SAMA)
+        //  KONFIGURASI FIREBASE
         // =====================================================
         const firebaseConfig = {
             apiKey: "AIzaSyDkEWKilk8kjdC7RcK1MJ2ktjhleyu8Ngw",
@@ -176,7 +176,10 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // Fungsi debug dengan pesan error yang informatif
+        // Variabel global untuk Service Worker registration
+        let swRegistration = null;
+
+        // Fungsi debug
         function addLog(message, isError = false) {
             const logEl = document.getElementById('logContent');
             const prefix = isError ? '❌' : '✅';
@@ -201,6 +204,50 @@
         }, (error) => {
             addLog('Gagal memantau koneksi: ' + error.message, true);
         });
+
+        // ==========  SERVICE WORKER REGISTRATION ==========
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(reg => {
+                    swRegistration = reg;
+                    addLog('Service Worker terdaftar');
+                })
+                .catch(err => addLog('Gagal daftar Service Worker: ' + err.message, true));
+        } else {
+            addLog('Browser tidak mendukung Service Worker', true);
+        }
+
+        // ==========  NOTIFIKASI (menggunakan SW jika tersedia) ==========
+        let notificationPermission = false;
+        if ('Notification' in window) {
+            if (Notification.permission === 'granted') {
+                notificationPermission = true;
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        notificationPermission = true;
+                        addLog('Izin notifikasi diberikan');
+                    }
+                });
+            }
+        } else {
+            addLog('Browser tidak mendukung notifikasi', true);
+        }
+
+        function showNotification(title, options) {
+            if (!notificationPermission) return;
+            if (swRegistration) {
+                // Gunakan Service Worker untuk menampilkan notifikasi
+                swRegistration.showNotification(title, options);
+            } else {
+                // Fallback ke constructor langsung
+                try {
+                    new Notification(title, options);
+                } catch (e) {
+                    addLog('Gagal menampilkan notifikasi: ' + e.message, true);
+                }
+            }
+        }
 
         // Elemen DOM
         const reportForm = document.getElementById('reportForm');
@@ -227,33 +274,7 @@
         // State autentikasi
         let currentUser = null;
 
-        // ==========  NOTIFIKASI ==========
-        let notificationPermission = false;
-        if ('Notification' in window) {
-            if (Notification.permission === 'granted') {
-                notificationPermission = true;
-            } else if (Notification.permission !== 'denied') {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        notificationPermission = true;
-                        addLog('Izin notifikasi diberikan');
-                    }
-                });
-            }
-        } else {
-            addLog('Browser tidak mendukung notifikasi', true);
-        }
-
-        function showNotification(title, options) {
-            if (!notificationPermission) return;
-            try {
-                new Notification(title, options);
-            } catch (e) {
-                addLog('Gagal menampilkan notifikasi: ' + e.message, true);
-            }
-        }
-
-        // ==========  FITUR PETA PEMILIHAN LOKASI (Modal) ==========
+        // ==========  PETA PEMILIHAN LOKASI ==========
         document.getElementById('mapModal').addEventListener('shown.bs.modal', function () {
             if (!pickerMap) {
                 const defaultLat = -6.2088;
@@ -338,7 +359,7 @@
             });
         }
 
-        // ==========  FORM SUBMIT (dengan koordinat) ==========
+        // ==========  FORM SUBMIT ==========
         function setDefaultDateTime() {
             const now = new Date();
             const year = now.getFullYear();
@@ -408,7 +429,7 @@
                 });
         });
 
-        // ==========  AUTH & TAB PETUGAS (dengan peta dan navigasi) ==========
+        // ==========  AUTH & TAB PETUGAS ==========
         auth.onAuthStateChanged((user) => {
             currentUser = user;
             if (user) {
@@ -455,7 +476,6 @@
             });
         }
 
-        // Menampilkan panel petugas: peta + tabel
         function showPetugasPanel() {
             logoutBtn.style.display = 'inline-block';
             petugasContent.innerHTML = `
@@ -485,7 +505,6 @@
             attachReportListener();
         }
 
-        // Peta untuk petugas
         let petugasMap = null;
         let markerGroup = null;
 
@@ -521,7 +540,6 @@
             }
         }
 
-        // Listener data untuk petugas (dengan notifikasi)
         function attachReportListener() {
             const reportList = document.getElementById('reportList');
             const emptyMessage = document.getElementById('emptyMessage');
@@ -595,7 +613,6 @@
             });
         }
 
-        // Format tanggal
         function formatDate(datetime) {
             if (!datetime) return '-';
             const d = new Date(datetime);
@@ -605,7 +622,6 @@
             });
         }
 
-        // Warna badge
         function getBadgeClass(severity) {
             if (severity.includes('Kebakaran')) return 'bg-danger';
             switch(severity) {
@@ -616,7 +632,6 @@
             }
         }
 
-        // Toggle resolve
         window.toggleResolve = function(id) {
             if (!currentUser) {
                 alert('Anda harus login terlebih dahulu!');
@@ -639,7 +654,6 @@
             });
         };
 
-        // Delete
         window.deleteReport = function(id) {
             if (!currentUser) {
                 alert('Anda harus login terlebih dahulu!');
@@ -652,19 +666,15 @@
             }
         };
 
-        // ==========  FITUR NAVIGASI (TAMBAHAN) ==========
-        // Fungsi untuk membuka rute ke lokasi kebakaran di Google Maps
         window.navigateTo = function(lat, lng) {
             if (lat == null || lng == null) {
                 alert('Koordinat lokasi tidak tersedia untuk laporan ini.');
                 return;
             }
-            // Buat URL untuk navigasi ke koordinat tujuan
             const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
             window.open(url, '_blank');
         };
 
-        // Logout
         logoutBtn.addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
@@ -678,14 +688,12 @@
                 .catch(err => addLog('Gagal logout: ' + err.message, true));
         });
 
-        // Inisialisasi tab Bootstrap (resize peta saat tab berubah)
         document.getElementById('petugas-tab').addEventListener('shown.bs.tab', function () {
             if (petugasMap) {
                 setTimeout(() => petugasMap.invalidateSize(), 100);
             }
         });
 
-        // Inisialisasi tab lainnya
         const triggerTabList = [].slice.call(document.querySelectorAll('#myTab button'));
         triggerTabList.forEach(triggerEl => {
             const tabTrigger = new bootstrap.Tab(triggerEl);
@@ -700,8 +708,10 @@
     <div class="container mt-3 small text-muted">
         <hr>
         <p><strong>✅ Fitur navigasi telah ditambahkan: Petugas bisa langsung membuka rute ke lokasi kebakaran melalui tombol 🗺️ di tabel atau link di popup marker.</strong></p>
+        <p><strong>✅ Notifikasi kini menggunakan Service Worker agar kompatibel dengan browser modern di HP.</strong></p>
         <p><strong>🔐 Firebase Auth dan Database tetap seperti semula, kompatibel dengan semua HP.</strong></p>
         <p><strong>⚠️ Jika koneksi Firebase gagal, pastikan domain <code>${window.location.hostname}</code> sudah ditambahkan di <a href="https://console.firebase.google.com/project/lapor-pemadam-630b0/authentication/settings" target="_blank">Firebase Console > Authentication > Settings > Authorized domains</a>.</strong></p>
+        <p><strong>📱 Untuk notifikasi bekerja, pastikan akses via HTTPS (atau localhost) dan Service Worker terdaftar.</strong></p>
     </div>
 </body>
 </html>
