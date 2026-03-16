@@ -176,9 +176,6 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // Variabel global untuk Service Worker registration
-        let swRegistration = null;
-
         // Fungsi debug
         function addLog(message, isError = false) {
             const logEl = document.getElementById('logContent');
@@ -205,19 +202,7 @@
             addLog('Gagal memantau koneksi: ' + error.message, true);
         });
 
-        // ==========  SERVICE WORKER REGISTRATION ==========
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js')
-                .then(reg => {
-                    swRegistration = reg;
-                    addLog('Service Worker terdaftar');
-                })
-                .catch(err => addLog('Gagal daftar Service Worker: ' + err.message, true));
-        } else {
-            addLog('Browser tidak mendukung Service Worker', true);
-        }
-
-        // ==========  NOTIFIKASI (menggunakan SW jika tersedia) ==========
+        // ==========  NOTIFIKASI (tanpa Service Worker) ==========
         let notificationPermission = false;
         if ('Notification' in window) {
             if (Notification.permission === 'granted') {
@@ -236,16 +221,10 @@
 
         function showNotification(title, options) {
             if (!notificationPermission) return;
-            if (swRegistration) {
-                // Gunakan Service Worker untuk menampilkan notifikasi
-                swRegistration.showNotification(title, options);
-            } else {
-                // Fallback ke constructor langsung
-                try {
-                    new Notification(title, options);
-                } catch (e) {
-                    addLog('Gagal menampilkan notifikasi: ' + e.message, true);
-                }
+            try {
+                new Notification(title, options);
+            } catch (e) {
+                addLog('Gagal menampilkan notifikasi: ' + e.message, true);
             }
         }
 
@@ -708,10 +687,10 @@
     <div class="container mt-3 small text-muted">
         <hr>
         <p><strong>✅ Fitur navigasi telah ditambahkan: Petugas bisa langsung membuka rute ke lokasi kebakaran melalui tombol 🗺️ di tabel atau link di popup marker.</strong></p>
-        <p><strong>✅ Notifikasi kini menggunakan Service Worker agar kompatibel dengan browser modern di HP.</strong></p>
+        <p><strong>✅ Notifikasi sekarang menggunakan Notification API langsung (tanpa Service Worker) dan tetap berfungsi saat halaman terbuka.</strong></p>
         <p><strong>🔐 Firebase Auth dan Database tetap seperti semula, kompatibel dengan semua HP.</strong></p>
         <p><strong>⚠️ Jika koneksi Firebase gagal, pastikan domain <code>${window.location.hostname}</code> sudah ditambahkan di <a href="https://console.firebase.google.com/project/lapor-pemadam-630b0/authentication/settings" target="_blank">Firebase Console > Authentication > Settings > Authorized domains</a>.</strong></p>
-        <p><strong>📱 Untuk notifikasi bekerja, pastikan akses via HTTPS (atau localhost) dan Service Worker terdaftar.</strong></p>
+        <p><strong>📱 Untuk notifikasi muncul, pastikan browser mengizinkan notifikasi untuk situs ini.</strong></p>
     </div>
 </body>
 </html>
