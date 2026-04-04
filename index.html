@@ -3,548 +3,563 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM Kabuapaten Buru</title>
+    <title>SILAPDAM | Kabupaten Buru - Yudha Brama Jaya</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Firebase SDK Compat -->
+    <!-- Font Awesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <style>
-        body { background-color: #f8f9fa; padding: 10px; font-family: system-ui, sans-serif; }
-        .container { max-width: 600px; margin: 0 auto; }
-        h1 { font-size: 1.8rem; }
-        .debug-box { background: #f0f0f0; padding: 10px; border-radius: 5px; font-size: 0.85rem; color: #333; max-height: 150px; overflow-y: auto; }
+        body { background-color: #f8f9fa; padding: 10px; font-family: system-ui, 'Segoe UI', Roboto, sans-serif; }
+        .container { max-width: 720px; margin: 0 auto; }
+        /* Gaya logo area - VERSI DIPERKECIL */
+        .logo-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f5f2e8 100%);
+            border-radius: 20px;
+            padding: 4px 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            border: 1px solid rgba(206, 178, 107, 0.3);
+            transition: all 0.2s;
+        }
+        .logo-card-kab {
+            background: linear-gradient(145deg, #fff9ef, #fff2e0);
+            border-left: 4px solid #b5651e;
+        }
+        .logo-card-yudha {
+            background: linear-gradient(145deg, #fff5f0, #ffe8de);
+            border-right: 4px solid #c0392b;
+        }
+        .emblem-icon {
+            font-size: 1.6rem;   /* diperkecil dari 2.2rem */
+            filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.08));
+        }
+        .motto-text {
+            font-size: 0.6rem;   /* diperkecil */
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: #7a5c2c;
+        }
+        .yudha-motto {
+            font-size: 0.6rem;
+            font-weight: 700;
+            color: #b13e2d;
+        }
+        .logo-title {
+            font-size: 0.85rem !important;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .header-title {
+            font-weight: 800;
+            font-size: 1.4rem;
+            background: linear-gradient(135deg, #b22222, #d94f30);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+        }
+        .debug-box { background: #f0f0f0; padding: 10px; border-radius: 5px; font-size: 0.75rem; color: #333; max-height: 150px; overflow-y: auto; border-left: 4px solid #ff9800; }
         #mapPicker, #mapPetugas { height: 300px; border-radius: 8px; border: 1px solid #ddd; z-index: 1; }
         .leaflet-container { font-size: 0.8rem; }
-        .modal-body { padding: 0; }
-        .btn-notif { background-color: #ffc107; color: #000; }
-        .notif-status { font-size: 0.8rem; margin-top: 5px; }
+        .footer-note {
+            background: #fef7e0;
+            border-radius: 20px;
+            padding: 10px;
+            border-left: 5px solid #e67e22;
+            font-size: 0.75rem;
+        }
+        @media (max-width: 576px) {
+            .emblem-icon { font-size: 1.3rem; }
+            .logo-title { font-size: 0.7rem !important; }
+            .motto-text, .yudha-motto { font-size: 0.5rem; }
+            .logo-card { padding: 2px 6px; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1 class="text-center mb-3">🚒 SILAPDAM Kabuapaten Buru</h1>
-        
-        <ul class="nav nav-tabs nav-fill mb-3" id="myTab" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="pelapor-tab" data-bs-toggle="tab" data-bs-target="#pelapor" type="button" role="tab">👤 Pelapor</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="petugas-tab" data-bs-toggle="tab" data-bs-target="#petugas" type="button" role="tab">👨‍🚒 Petugas</button>
-            </li>
-        </ul>
-
-        <div id="debugPanel" class="alert alert-warning small" style="display: none;">
-            <strong>🔍 Debug Info:</strong>
-            <div id="debugMessage"></div>
-        </div>
-
-        <div class="tab-content" id="myTabContent">
-            <!-- TAB PELAPOR -->
-            <div class="tab-pane fade show active" id="pelapor" role="tabpanel">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0">Form Laporan Baru</h5>
-                    </div>
-                    <div class="card-body">
-                        <form id="reportForm">
-                            <div class="mb-2">
-                                <label for="location" class="form-label">Lokasi kejadian</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" id="location" placeholder="Contoh: Jl. Merdeka No.10" required>
-                                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#mapModal">🗺️ Pilih di Peta</button>
-                                </div>
-                                <input type="hidden" id="latitude" name="latitude">
-                                <input type="hidden" id="longitude" name="longitude">
-                                <small class="text-muted" id="coordDisplay"></small>
-                            </div>
-                            <div class="mb-2">
-                                <label for="name" class="form-label">Nama Pelapor</label>
-                                <input type="text" class="form-control" id="name" placeholder="Nama lengkap" required>
-                            </div>
-                            <div class="mb-2">
-                                <label for="phone" class="form-label">Nomor HP</label>
-                                <input type="tel" class="form-control" id="phone" placeholder="0812xxxxxx" required>
-                            </div>
-                            <div class="mb-2">
-                                <label for="severity" class="form-label">Jenis kejadian</label>
-                                <select class="form-select" id="severity" required>
-                                    <option value="">Pilih...</option>
-                                    <option value="Kebakaran Pemukiman">🔥 Kebakaran Pemukiman</option>
-                                    <option value="Kebakaran Hutan/Lahan">🌲 Kebakaran Hutan/Lahan</option>
-                                    <option value="Kebakaran Gedung">🏢 Kebakaran Gedung</option>
-                                    <option value="Kebakaran Kendaraan">🚗 Kebakaran Kendaraan</option>
-                                    <option value="Kebakaran Industri">🏭 Kebakaran Industri</option>
-                                    <option value="Non Kebakaran">🆘 Non Kebakaran</option>
-                                    <option value="Penanganan B3">☣️ Penanganan B3</option>
-                                    <option value="Lain-lain">📌 Lain-lain</option>
-                                </select>
-                            </div>
-                            <div class="mb-2">
-                                <label for="description" class="form-label">Keterangan</label>
-                                <textarea class="form-control" id="description" rows="2" placeholder="Misal: Api dari dapur..." required></textarea>
-                            </div>
-                            <div class="mb-2">
-                                <label for="datetime" class="form-label">Waktu kejadian</label>
-                                <input type="datetime-local" class="form-control" id="datetime" required>
-                            </div>
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-danger">Kirim Laporan</button>
-                                <button type="reset" class="btn btn-secondary">Reset</button>
-                            </div>
-                        </form>
-                        <div id="submitMessage" class="mt-2 alert" style="display: none;"></div>
-                    </div>
+<div class="container">
+    <!-- BARIS LOGO GABUNGAN: KABUPATEN BURU & YUDHA BRAMA JAYA (UKURAN DIPERKECIL) -->
+    <div class="row g-1 align-items-center mb-2 mt-1">
+        <div class="col-5 col-md-4 text-start">
+            <div class="logo-card logo-card-kab d-flex align-items-center gap-2 w-100 justify-content-start py-1 px-2">
+                <div class="emblem-icon text-warning-emphasis">
+                    <i class="fas fa-shield-alt fa-fw" style="color: #b5651e;"></i>
                 </div>
-                <div class="alert alert-info mt-2 small">
-                    ✅ Klik tombol "Pilih di Peta" untuk menentukan lokasi tepat kejadian.
+                <div class="text-start">
+                    <div class="fw-bold text-dark logo-title">KABUPATEN BURU</div>
+                    <div class="motto-text"><i class="fas fa-scroll me-1"></i> RETE MENA BARA SEHE</div>
                 </div>
             </div>
+        </div>
+        <div class="col-2 col-md-4 text-center">
+            <h1 class="h5 mb-0 header-title">
+                <i class="fas fa-fire-extinguisher me-1"></i> SILAPDAM
+            </h1>
+            <span class="badge bg-secondary mt-1" style="font-size: 0.6rem;">Sistem Lapor Pemadam</span>
+        </div>
+        <div class="col-5 col-md-4 text-end">
+            <div class="logo-card logo-card-yudha d-flex align-items-center gap-2 w-100 justify-content-end py-1 px-2">
+                <div class="text-end">
+                    <div class="fw-bold text-danger logo-title">YUDHA BRAMA JAYA</div>
+                    <div class="yudha-motto"><i class="fas fa-flame"></i> Pemadam Kebakaran</div>
+                </div>
+                <div class="emblem-icon text-danger">
+                    <i class="fas fa-fire-extinguisher fa-fw"></i>
+                </div>
+            </div>
+        </div>
+    </div>
 
-            <!-- TAB PETUGAS -->
-            <div class="tab-pane fade" id="petugas" role="tabpanel">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap">
-                        <h5 class="mb-0">📋 Peta & Laporan Masuk</h5>
-                        <div>
-                            <button id="requestNotifBtn" class="btn btn-sm btn-warning me-1">🔔 Izinkan Notifikasi</button>
-                            <button id="logoutBtn" class="btn btn-sm btn-outline-light">Logout</button>
+    <ul class="nav nav-tabs nav-fill mb-3" id="myTab" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="pelapor-tab" data-bs-toggle="tab" data-bs-target="#pelapor" type="button" role="tab"><i class="fas fa-user-edit me-1"></i> Pelapor</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="petugas-tab" data-bs-toggle="tab" data-bs-target="#petugas" type="button" role="tab"><i class="fas fa-helmet-safety me-1"></i> Petugas</button>
+        </li>
+    </ul>
+
+    <div id="debugPanel" class="alert alert-warning small" style="display: none;">
+        <strong><i class="fas fa-bug"></i> Debug Info:</strong>
+        <div id="debugMessage"></div>
+    </div>
+
+    <div class="tab-content" id="myTabContent">
+        <!-- TAB PELAPOR -->
+        <div class="tab-pane fade show active" id="pelapor" role="tabpanel">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-danger text-white fw-semibold py-2">
+                    <h5 class="mb-0 fs-6"><i class="fas fa-phone-alt me-2"></i>Form Laporan Darurat</h5>
+                </div>
+                <div class="card-body">
+                    <form id="reportForm">
+                        <div class="mb-2">
+                            <label for="location" class="form-label fw-semibold small"><i class="fas fa-map-marker-alt text-danger"></i> Lokasi kejadian</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control form-control-sm" id="location" placeholder="Contoh: Jl. Merdeka No.10, Namlea" required>
+                                <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#mapModal"><i class="fas fa-draw-polygon"></i> Pilih di Peta</button>
+                            </div>
+                            <input type="hidden" id="latitude" name="latitude">
+                            <input type="hidden" id="longitude" name="longitude">
+                            <small class="text-muted" id="coordDisplay"></small>
                         </div>
-                    </div>
-                    <div class="card-body p-2" id="petugasContent">
-                        <!-- Diisi JS -->
-                    </div>
+                        <div class="mb-2">
+                            <label for="name" class="form-label fw-semibold small"><i class="fas fa-user"></i> Nama Pelapor</label>
+                            <input type="text" class="form-control form-control-sm" id="name" placeholder="Nama lengkap" required>
+                        </div>
+                        <div class="mb-2">
+                            <label for="phone" class="form-label fw-semibold small"><i class="fas fa-mobile-alt"></i> Nomor HP</label>
+                            <input type="tel" class="form-control form-control-sm" id="phone" placeholder="0812xxxxxx" required>
+                        </div>
+                        <div class="mb-2">
+                            <label for="severity" class="form-label fw-semibold small"><i class="fas fa-fire"></i> Jenis kejadian</label>
+                            <select class="form-select form-select-sm" id="severity" required>
+                                <option value="">Pilih...</option>
+                                <option value="Kebakaran Pemukiman">🔥 Kebakaran Pemukiman</option>
+                                <option value="Kebakaran Hutan/Lahan">🌲 Kebakaran Hutan/Lahan</option>
+                                <option value="Kebakaran Gedung">🏢 Kebakaran Gedung</option>
+                                <option value="Kebakaran Kendaraan">🚗 Kebakaran Kendaraan</option>
+                                <option value="Kebakaran Industri">🏭 Kebakaran Industri</option>
+                                <option value="Non Kebakaran">🆘 Non Kebakaran</option>
+                                <option value="Penanganan B3">☣️ Penanganan B3</option>
+                                <option value="Lain-lain">📌 Lain-lain</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label for="description" class="form-label fw-semibold small"><i class="fas fa-file-alt"></i> Keterangan</label>
+                            <textarea class="form-control form-control-sm" id="description" rows="2" placeholder="Contoh: Api dari dapur merambat ke atap..." required></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label for="datetime" class="form-label fw-semibold small"><i class="fas fa-clock"></i> Waktu kejadian</label>
+                            <input type="datetime-local" class="form-control form-control-sm" id="datetime" required>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-paper-plane"></i> Kirim Laporan</button>
+                            <button type="reset" class="btn btn-secondary btn-sm"><i class="fas fa-undo-alt"></i> Reset</button>
+                        </div>
+                    </form>
+                    <div id="submitMessage" class="mt-2 alert alert-sm" style="display: none;"></div>
                 </div>
+            </div>
+            <div class="alert alert-info mt-2 small py-1">
+                <i class="fas fa-info-circle"></i> ✅ Klik tombol "Pilih di Peta" untuk menentukan lokasi tepat kejadian.
             </div>
         </div>
 
-        <div class="debug-box mt-3">
-            <strong>📡 Live Debug Log:</strong><br>
-            <span id="logContent">Menunggu koneksi...</span>
-        </div>
-    </div>
-
-    <!-- MODAL PETA -->
-    <div class="modal fade" id="mapModal" tabindex="-1" aria-labelledby="mapModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="mapModalLabel">Pilih Titik Lokasi Kejadian</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-0">
-                    <div id="mapPicker" style="height: 400px;"></div>
-                    <div class="p-2 small bg-light">
-                        <span id="pickerInfo">Klik peta untuk menempatkan marker, atau geser marker.</span>
+        <!-- TAB PETUGAS -->
+        <div class="tab-pane fade" id="petugas" role="tabpanel">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap py-2">
+                    <h5 class="mb-0 fs-6"><i class="fas fa-tasks me-2"></i> Dashboard & Peta Laporan</h5>
+                    <div>
+                        <button id="requestNotifBtn" class="btn btn-sm btn-warning me-1 py-0"><i class="fas fa-bell"></i> Izinkan Notifikasi</button>
+                        <button id="logoutBtn" class="btn btn-sm btn-outline-light py-0"><i class="fas fa-sign-out-alt"></i> Logout</button>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                    <button type="button" class="btn btn-primary" id="confirmLocationBtn" disabled>Konfirmasi Lokasi</button>
+                <div class="card-body p-2" id="petugasContent">
+                    <!-- Dinamis oleh JS -->
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <div class="debug-box mt-3">
+        <strong><i class="fas fa-terminal"></i> Live Debug Log:</strong><br>
+        <span id="logContent">Menunggu koneksi Firebase...</span>
+    </div>
+</div>
 
-    <script>
-        // ========== FIREBASE CONFIG ==========
-        const firebaseConfig = {
-            apiKey: "AIzaSyDkEWKilk8kjdC7RcK1MJ2ktjhleyu8Ngw",
-            authDomain: "lapor-pemadam-630b0.firebaseapp.com",
-            databaseURL: "https://lapor-pemadam-630b0-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "lapor-pemadam-630b0",
-            storageBucket: "lapor-pemadam-630b0.firebasestorage.app",
-            messagingSenderId: "884110818669",
-            appId: "1:884110818669:web:8561c7eb950f0603a2ae64"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-        const auth = firebase.auth();
-        const reportsRef = database.ref('reports');
+<!-- MODAL PETA PICKER -->
+<div class="modal fade" id="mapModal" tabindex="-1" aria-labelledby="mapModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white py-2">
+                <h5 class="modal-title fs-6" id="mapModalLabel"><i class="fas fa-map-marked-alt"></i> Geser / klik untuk menentukan titik kejadian</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="mapPicker" style="height: 400px;"></div>
+                <div class="p-2 small bg-light">
+                    <span id="pickerInfo"><i class="fas fa-hand-pointer"></i> Klik peta untuk menempatkan marker, atau drag marker.</span>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary btn-sm" id="confirmLocationBtn" disabled><i class="fas fa-check-circle"></i> Konfirmasi Lokasi</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-        // ========== DEBUG LOG ==========
-        function addLog(msg, isError = false) {
-            const logEl = document.getElementById('logContent');
-            logEl.innerHTML = (isError ? '❌ ' : '✅ ') + msg + '<br>' + logEl.innerHTML;
-            if (isError) {
-                document.getElementById('debugPanel').style.display = 'block';
-                document.getElementById('debugMessage').innerHTML = msg + (msg.includes('network') ? '<br>🔧 Periksa authorized domains di Firebase Console.' : '');
-            }
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    // ========== KONFIGURASI FIREBASE ==========
+    const firebaseConfig = {
+        apiKey: "AIzaSyDkEWKilk8kjdC7RcK1MJ2ktjhleyu8Ngw",
+        authDomain: "lapor-pemadam-630b0.firebaseapp.com",
+        databaseURL: "https://lapor-pemadam-630b0-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "lapor-pemadam-630b0",
+        storageBucket: "lapor-pemadam-630b0.firebasestorage.app",
+        messagingSenderId: "884110818669",
+        appId: "1:884110818669:web:8561c7eb950f0603a2ae64"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const auth = firebase.auth();
+    const reportsRef = database.ref('reports');
+
+    // ========== DEBUG LOG ==========
+    function addLog(msg, isError = false) {
+        const logEl = document.getElementById('logContent');
+        logEl.innerHTML = (isError ? '❌ ' : '✅ ') + msg + '<br>' + logEl.innerHTML;
+        if (isError) {
+            document.getElementById('debugPanel').style.display = 'block';
+            document.getElementById('debugMessage').innerHTML = msg + (msg.includes('network') ? '<br>🔧 Periksa authorized domains di Firebase Console.' : '');
         }
+    }
+    database.ref('.info/connected').on('value', snap => {
+        addLog(snap.val() ? 'Terhubung ke Firebase Realtime Database' : 'Koneksi Firebase putus', !snap.val());
+    });
 
-        database.ref('.info/connected').on('value', snap => {
-            addLog(snap.val() ? 'Terhubung ke Firebase' : 'Koneksi Firebase putus', !snap.val());
-        });
-
-        // ========== NOTIFIKASI (dengan tombol izin) ==========
-        let notifPermission = false;
-        let notificationGranted = false;
-
-        function updateNotifStatus() {
-            const statusDiv = document.querySelector('.notif-status');
-            if (statusDiv) statusDiv.innerHTML = `Status notifikasi: ${notificationGranted ? '✅ Diizinkan' : '❌ Belum diizinkan (klik tombol kuning)'}`;
+    // ========== NOTIFIKASI ==========
+    let notificationGranted = false;
+    function updateNotifStatus() {
+        const statusSpan = document.querySelector('.notif-status');
+        if (statusSpan) statusSpan.innerHTML = `<i class="fas fa-bell"></i> Notifikasi: ${notificationGranted ? 'AKTIF ✅' : 'NONAKTIF ❌'}`;
+    }
+    async function requestNotificationPermission() {
+        if (!('Notification' in window)) {
+            addLog('Browser tidak support notifikasi', true);
+            alert('Browser tidak mendukung notifikasi push.');
+            return false;
         }
-
-        async function requestNotificationPermission() {
-            if (!('Notification' in window)) {
-                addLog('Browser tidak support notifikasi desktop/mobile', true);
-                alert('Browser Anda tidak mendukung notifikasi.');
-                return false;
-            }
-            if (Notification.permission === 'granted') {
+        if (Notification.permission === 'granted') {
+            notificationGranted = true;
+            addLog('Izin notifikasi sudah aktif');
+            updateNotifStatus();
+            return true;
+        }
+        if (Notification.permission !== 'denied') {
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
                 notificationGranted = true;
-                addLog('Notifikasi sudah diizinkan sebelumnya');
+                addLog('Izin notifikasi DIBERIKAN! Laporan baru akan muncul popup.');
                 updateNotifStatus();
                 return true;
-            }
-            if (Notification.permission !== 'denied') {
-                const permission = await Notification.requestPermission();
-                if (permission === 'granted') {
-                    notificationGranted = true;
-                    addLog('Izin notifikasi DIBERIKAN! Sekarang laporan baru akan muncul popup di HP.');
-                    updateNotifStatus();
-                    return true;
-                } else {
-                    addLog('Izin notifikasi ditolak oleh pengguna', true);
-                    notificationGranted = false;
-                    updateNotifStatus();
-                    return false;
-                }
             } else {
-                addLog('Notifikasi sebelumnya ditolak permanen. Atur ulang izin di pengaturan browser.', true);
-                alert('Notifikasi diblokir. Silakan izinkan notifikasi untuk situs ini di pengaturan browser.');
+                addLog('Izin notifikasi ditolak', true);
                 notificationGranted = false;
                 updateNotifStatus();
                 return false;
             }
-        }
-
-        function showBrowserNotification(title, body, icon = 'https://cdn-icons-png.flaticon.com/512/484/484167.png') {
-            if (!notificationGranted) {
-                addLog('Notifikasi tidak ditampilkan karena izin belum diberikan');
-                return false;
-            }
-            try {
-                const notif = new Notification(title, { body, icon, vibrate: [200, 100, 200] });
-                notif.onclick = () => {
-                    window.focus();
-                    // Buka tab petugas jika perlu
-                    document.querySelector('#petugas-tab').click();
-                };
-                addLog(`Notifikasi dikirim: ${title}`);
-                return true;
-            } catch (e) {
-                addLog(`Gagal notifikasi: ${e.message}`, true);
-                return false;
-            }
-        }
-
-        // Fallback notifikasi in-app (toast sederhana)
-        function showInAppAlert(title, message) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-2 shadow';
-            alertDiv.style.zIndex = '9999';
-            alertDiv.style.minWidth = '250px';
-            alertDiv.innerHTML = `<strong>${title}</strong><br>${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-            document.body.appendChild(alertDiv);
-            setTimeout(() => alertDiv.remove(), 5000);
-        }
-
-        // ========== LISTENER LAPORAN DENGAN NOTIFIKASI CERDAS ==========
-        let childAddedListener = null;
-        let isInitialLoad = true;
-
-        function attachNotificationListener() {
-            if (childAddedListener) {
-                reportsRef.off('child_added', childAddedListener);
-            }
-            isInitialLoad = true;
-            // Setelah 2 detik, anggap initial load selesai
-            setTimeout(() => { isInitialLoad = false; addLog('Mode notifikasi aktif: laporan baru akan memicu popup.'); }, 2000);
-            
-            childAddedListener = reportsRef.on('child_added', (snapshot) => {
-                if (isInitialLoad) {
-                    addLog('Lewati notifikasi (initial load): ' + snapshot.key);
-                    return;
-                }
-                const report = snapshot.val();
-                if (!report) return;
-                // Pastikan user sudah login (petugas) agar notifikasi relevan
-                if (!currentUser) {
-                    addLog('Notifikasi tidak ditampilkan karena petugas belum login');
-                    return;
-                }
-                const title = `🚨 Laporan baru dari ${report.name || 'Warga'}`;
-                const body = `${report.severity}\n📍 ${report.location}\n📝 ${report.description.substring(0, 50)}`;
-                // Coba browser notification
-                const shown = showBrowserNotification(title, body);
-                if (!shown) {
-                    // fallback in-app
-                    showInAppAlert(title, body);
-                }
-                // Bisa juga getar jika didukung
-                if (navigator.vibrate) navigator.vibrate(200);
-            });
-        }
-
-        // ========== PETUGAS PANEL (MAP + TABEL) ==========
-        let petugasMap = null, markerGroup = null;
-        let currentUser = null;
-
-        function initPetugasMap() {
-            if (petugasMap) return;
-            petugasMap = L.map('mapPetugas').setView([-6.2088, 106.8456], 10);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y.png}', {
-                attribution: '&copy; OpenStreetMap'
-            }).addTo(petugasMap);
-            markerGroup = L.layerGroup().addTo(petugasMap);
-        }
-
-        function updatePetugasMap(reportsArray) {
-            if (!petugasMap || !markerGroup) return;
-            markerGroup.clearLayers();
-            let bounds = [];
-            reportsArray.forEach(r => {
-                if (r.latitude && r.longitude) {
-                    let marker = L.marker([r.latitude, r.longitude]).bindPopup(`
-                        <b>${r.name}</b><br>${r.location}<br>${r.severity}<br>
-                        Status: ${r.resolved ? '✅ Selesai' : '⏳ Proses'}<br>
-                        <a href="https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}" target="_blank">🚗 Navigasi</a>
-                    `);
-                    marker.addTo(markerGroup);
-                    bounds.push([r.latitude, r.longitude]);
-                }
-            });
-            if (bounds.length) petugasMap.fitBounds(bounds, { padding: [20,20] });
-        }
-
-        function formatDate(d) { return d ? new Date(d).toLocaleString('id-ID') : '-'; }
-        function getBadgeClass(sev) {
-            if (sev.includes('Kebakaran')) return 'bg-danger';
-            if (sev === 'Non Kebakaran') return 'bg-secondary';
-            if (sev === 'Penanganan B3') return 'bg-warning';
-            return 'bg-primary';
-        }
-
-        function renderReportsTable(snapshot) {
-            const tbody = document.getElementById('reportList');
-            const emptyMsg = document.getElementById('emptyMessage');
-            const reports = snapshot.val();
-            if (!reports) {
-                if(tbody) tbody.innerHTML = '';
-                if(emptyMsg) emptyMsg.style.display = 'block';
-                if(markerGroup) markerGroup.clearLayers();
-                return;
-            }
-            if(emptyMsg) emptyMsg.style.display = 'none';
-            const arr = Object.keys(reports).map(k => ({ id: k, ...reports[k] })).sort((a,b)=>new Date(b.datetime)-new Date(a.datetime));
-            let html = '';
-            arr.forEach((r,idx) => {
-                html += `<tr>
-                    <td>${idx+1}</td>
-                    <td>${r.name || '-'}</td>
-                    <td>${r.phone || '-'}</td>
-                    <td>${r.location}</td>
-                    <td>${r.description}</td>
-                    <td><span class="badge ${getBadgeClass(r.severity)}">${r.severity}</span></td>
-                    <td>${formatDate(r.datetime)}</td>
-                    <td><span class="badge ${r.resolved ? 'bg-success' : 'bg-warning'}">${r.resolved ? 'Selesai' : 'Proses'}</span></td>
-                    <td>${formatDate(r.resolvedAt)}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="navigateTo('${r.latitude}','${r.longitude}')" ${!r.latitude ? 'disabled' : ''}>🗺️</button>
-                        <button class="btn btn-sm btn-outline-success" onclick="toggleResolve('${r.id}')">✓</button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteReport('${r.id}')">✗</button>
-                    </td>
-                </tr>`;
-            });
-            tbody.innerHTML = html;
-            updatePetugasMap(arr);
-        }
-
-        function attachReportValueListener() {
-            reportsRef.on('value', renderReportsTable);
-        }
-
-        window.toggleResolve = (id) => {
-            if(!currentUser) return alert('Login dulu');
-            reportsRef.child(id).get().then(snap => {
-                if(snap.exists()){
-                    const newRes = !snap.val().resolved;
-                    reportsRef.child(id).update({ resolved: newRes, resolvedAt: newRes ? new Date().toISOString() : null });
-                }
-            });
-        };
-        window.deleteReport = (id) => {
-            if(!currentUser) return alert('Login dulu');
-            if(confirm('Hapus laporan?')) reportsRef.child(id).remove();
-        };
-        window.navigateTo = (lat,lng) => {
-            if(lat && lng) window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
-            else alert('Koordinat tidak tersedia');
-        };
-
-        function showLoginForm() {
-            document.getElementById('logoutBtn').style.display = 'none';
-            document.getElementById('petugasContent').innerHTML = `
-                <div class="p-3">
-                    <h6>🔐 Login Petugas</h6>
-                    <form id="loginFormPetugas">
-                        <div class="mb-2"><input type="email" id="emailPetugas" class="form-control" placeholder="Email" required></div>
-                        <div class="mb-2"><input type="password" id="passPetugas" class="form-control" placeholder="Password" required></div>
-                        <button type="submit" class="btn btn-primary w-100">Masuk</button>
-                    </form>
-                    <p class="small text-muted mt-2">Gunakan akun dari Firebase Auth. Contoh: petugas@lapor.com / pemadam123</p>
-                </div>
-            `;
-            document.getElementById('loginFormPetugas').addEventListener('submit', e => {
-                e.preventDefault();
-                const email = document.getElementById('emailPetugas').value.trim();
-                const pwd = document.getElementById('passPetugas').value.trim();
-                auth.signInWithEmailAndPassword(email,pwd).catch(err => alert('Gagal login: '+err.message));
-            });
-        }
-
-        function showPetugasPanel() {
-            document.getElementById('logoutBtn').style.display = 'inline-block';
-            document.getElementById('petugasContent').innerHTML = `
-                <div id="mapPetugas" style="height: 250px; margin-bottom: 10px;"></div>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="notif-status badge bg-secondary">Status notifikasi: ${notificationGranted ? '✅ AKTIF' : '🔕 Nonaktif'}</span>
-                    <button id="requestNotifBtnPanel" class="btn btn-sm btn-warning">🔔 Izinkan Notifikasi</button>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover align-middle small">
-                        <thead class="table-light"><tr><th>#</th><th>Nama</th><th>HP</th><th>Lokasi</th><th>Ket</th><th>Jenis</th><th>Waktu</th><th>Status</th><th>Selesai</th><th>Aksi</th></tr></thead>
-                        <tbody id="reportList"></tbody>
-                    </table>
-                </div>
-                <p id="emptyMessage" class="text-muted text-center">Belum ada laporan</p>
-            `;
-            initPetugasMap();
-            attachReportValueListener();
-            // Pasang ulang listener notifikasi
-            attachNotificationListener();
-            // Event untuk tombol izin notifikasi di panel
-            const notifBtnPanel = document.getElementById('requestNotifBtnPanel');
-            if(notifBtnPanel) notifBtnPanel.onclick = () => requestNotificationPermission();
+        } else {
+            addLog('Notifikasi diblokir permanen oleh browser', true);
+            alert('Notifikasi diblokir. Ubah izin di pengaturan browser.');
+            notificationGranted = false;
             updateNotifStatus();
+            return false;
         }
-
-        // ========== AUTH STATE ==========
-        auth.onAuthStateChanged(user => {
-            currentUser = user;
-            if(user) {
-                addLog(`Login sebagai ${user.email}`);
-                showPetugasPanel();
-            } else {
-                addLog('Belum login');
-                showLoginForm();
-                // Lepas listener notifikasi
-                if(childAddedListener) reportsRef.off('child_added', childAddedListener);
-            }
-        });
-
-        // ========== TOMBOL LOGOUT & IZIN NOTIF GLOBAL ==========
-        document.getElementById('logoutBtn')?.addEventListener('click', () => auth.signOut().then(() => {
-            if(petugasMap) { petugasMap.remove(); petugasMap = null; }
-            reportsRef.off('value');
-        }));
-        document.getElementById('requestNotifBtn')?.addEventListener('click', () => requestNotificationPermission());
-
-        // ========== FORM PELAPOR ==========
-        const locationInput = document.getElementById('location');
-        const nameInput = document.getElementById('name');
-        const phoneInput = document.getElementById('phone');
-        const severityInput = document.getElementById('severity');
-        const descriptionInput = document.getElementById('description');
-        const datetimeInput = document.getElementById('datetime');
-        const latitudeInput = document.getElementById('latitude');
-        const longitudeInput = document.getElementById('longitude');
-        const coordDisplay = document.getElementById('coordDisplay');
-        const submitMessage = document.getElementById('submitMessage');
-        const confirmLocationBtn = document.getElementById('confirmLocationBtn');
-        let selectedLat=null, selectedLng=null, pickerMap=null, pickerMarker=null;
-
-        function setDefaultDateTime() {
-            const now = new Date();
-            datetimeInput.value = now.toISOString().slice(0,16);
-        }
-        setDefaultDateTime();
-
-        document.getElementById('mapModal').addEventListener('shown.bs.modal', function() {
-            if(!pickerMap) {
-                pickerMap = L.map('mapPicker').setView([-6.2088,106.8456],12);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(pickerMap);
-                if(navigator.geolocation) navigator.geolocation.getCurrentPosition(pos => pickerMap.setView([pos.coords.latitude, pos.coords.longitude], 15));
-                pickerMap.on('click', e => placeMarker(e.latlng.lat, e.latlng.lng));
-            }
-        });
-        function placeMarker(lat,lng) {
-            if(pickerMarker) pickerMarker.setLatLng([lat,lng]);
-            else pickerMarker = L.marker([lat,lng], {draggable:true}).addTo(pickerMap).on('dragend', e => updateSelected(e.target.getLatLng().lat, e.target.getLatLng().lng));
-            updateSelected(lat,lng);
-        }
-        function updateSelected(lat,lng) {
-            selectedLat=lat; selectedLng=lng;
-            document.getElementById('pickerInfo').innerText = `Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-            confirmLocationBtn.disabled = false;
-        }
-        confirmLocationBtn.addEventListener('click', () => {
-            if(selectedLat && selectedLng) {
-                latitudeInput.value = selectedLat;
-                longitudeInput.value = selectedLng;
-                coordDisplay.innerText = `${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
-                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${selectedLat}&lon=${selectedLng}&zoom=18`)
-                    .then(r=>r.json()).then(data => { if(data.display_name) locationInput.value = data.display_name; })
-                    .catch(()=> locationInput.value = `${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`);
-                bootstrap.Modal.getInstance(document.getElementById('mapModal')).hide();
-            }
-        });
-
-        document.getElementById('reportForm').addEventListener('submit', e => {
-            e.preventDefault();
-            if(!locationInput.value.trim() || !nameInput.value.trim() || !phoneInput.value.trim() || !severityInput.value || !descriptionInput.value.trim() || !datetimeInput.value)
-                return alert('Semua field harus diisi');
-            const newReport = {
-                location: locationInput.value.trim(),
-                name: nameInput.value.trim(),
-                phone: phoneInput.value.trim(),
-                severity: severityInput.value,
-                description: descriptionInput.value.trim(),
-                datetime: datetimeInput.value,
-                latitude: latitudeInput.value ? parseFloat(latitudeInput.value) : null,
-                longitude: longitudeInput.value ? parseFloat(longitudeInput.value) : null,
-                resolved: false, resolvedAt: null
+    }
+    function showBrowserNotification(title, body, icon = 'https://cdn-icons-png.flaticon.com/512/484/484167.png') {
+        if (!notificationGranted) return false;
+        try {
+            const notif = new Notification(title, { body, icon, vibrate: [200, 100, 200] });
+            notif.onclick = () => {
+                window.focus();
+                document.querySelector('#petugas-tab')?.click();
             };
-            submitMessage.style.display='block'; submitMessage.className='alert alert-info'; submitMessage.innerText='Mengirim...';
-            reportsRef.push(newReport).then(() => {
-                submitMessage.className='alert alert-success'; submitMessage.innerText='✅ Laporan terkirim!';
-                addLog('Laporan baru dikirim');
-                document.getElementById('reportForm').reset(); setDefaultDateTime();
-                latitudeInput.value=''; longitudeInput.value=''; coordDisplay.innerText='';
-                if(pickerMarker) pickerMarker.remove();
-                setTimeout(()=>submitMessage.style.display='none',3000);
-            }).catch(err => { submitMessage.className='alert alert-danger'; submitMessage.innerText='Gagal: '+err.message; addLog(err.message,true); });
-        });
+            addLog(`Notifikasi dikirim: ${title}`);
+            return true;
+        } catch (e) {
+            addLog(`Gagal notifikasi: ${e.message}`, true);
+            return false;
+        }
+    }
+    function showInAppAlert(title, message) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-2 shadow-lg';
+        alertDiv.style.zIndex = '9999';
+        alertDiv.style.minWidth = '280px';
+        alertDiv.innerHTML = `<strong><i class="fas fa-fire"></i> ${title}</strong><br>${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+        document.body.appendChild(alertDiv);
+        setTimeout(() => alertDiv.remove(), 6000);
+    }
 
-        // inisialisasi tombol izin notifikasi global
-        if(document.getElementById('requestNotifBtn')) document.getElementById('requestNotifBtn').onclick = () => requestNotificationPermission();
-        // tampilkan status notifikasi awal
-        if(Notification.permission === 'granted') notificationGranted = true;
+    // ========== LISTENER LAPORAN BARU ==========
+    let childAddedListener = null;
+    let isInitialLoad = true;
+    function attachNotificationListener() {
+        if (childAddedListener) reportsRef.off('child_added', childAddedListener);
+        isInitialLoad = true;
+        setTimeout(() => { isInitialLoad = false; addLog('Mode notifikasi siap: laporan baru akan memicu peringatan.'); }, 2500);
+        childAddedListener = reportsRef.on('child_added', (snapshot) => {
+            if (isInitialLoad) return;
+            const report = snapshot.val();
+            if (!report || !currentUser) return;
+            const title = `🚨 Laporan Baru - ${report.severity}`;
+            const body = `${report.name} | ${report.location}\n📝 ${report.description.substring(0, 60)}`;
+            const shown = showBrowserNotification(title, body);
+            if (!shown) showInAppAlert(title, body);
+            if (navigator.vibrate) navigator.vibrate(200);
+        });
+    }
+
+    // ========== PETUGAS PANEL ==========
+    let petugasMap = null, markerGroup = null;
+    let currentUser = null;
+
+    function initPetugasMap() {
+        if (petugasMap) return;
+        petugasMap = L.map('mapPetugas').setView([-3.322, 126.982], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(petugasMap);
+        markerGroup = L.layerGroup().addTo(petugasMap);
+    }
+    function updatePetugasMap(reportsArray) {
+        if (!petugasMap || !markerGroup) return;
+        markerGroup.clearLayers();
+        let bounds = [];
+        reportsArray.forEach(r => {
+            if (r.latitude && r.longitude) {
+                let marker = L.marker([r.latitude, r.longitude]).bindPopup(`
+                    <b>🧑‍🚒 ${r.name}</b><br>📍 ${r.location}<br>🔥 ${r.severity}<br>
+                    <span class="badge ${r.resolved ? 'bg-success' : 'bg-warning'}">${r.resolved ? 'SELESAI' : 'PROSES'}</span><br>
+                    <a href="https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}" target="_blank" class="btn btn-sm btn-primary mt-1"><i class="fas fa-directions"></i> Navigasi</a>
+                `);
+                marker.addTo(markerGroup);
+                bounds.push([r.latitude, r.longitude]);
+            }
+        });
+        if (bounds.length) petugasMap.fitBounds(bounds, { padding: [30,30] });
+    }
+    function formatDate(d) { return d ? new Date(d).toLocaleString('id-ID') : '-'; }
+    function getBadgeClass(sev) {
+        if (sev.includes('Kebakaran')) return 'bg-danger';
+        if (sev === 'Non Kebakaran') return 'bg-secondary';
+        if (sev === 'Penanganan B3') return 'bg-warning';
+        return 'bg-primary';
+    }
+    function renderReportsTable(snapshot) {
+        const tbody = document.getElementById('reportList');
+        const emptyMsg = document.getElementById('emptyMessage');
+        const reports = snapshot.val();
+        if (!reports) {
+            if(tbody) tbody.innerHTML = '';
+            if(emptyMsg) emptyMsg.style.display = 'block';
+            if(markerGroup) markerGroup.clearLayers();
+            return;
+        }
+        if(emptyMsg) emptyMsg.style.display = 'none';
+        const arr = Object.keys(reports).map(k => ({ id: k, ...reports[k] })).sort((a,b)=>new Date(b.datetime)-new Date(a.datetime));
+        let html = '';
+        arr.forEach((r,idx) => {
+            html += `<tr>
+                <td>${idx+1}</td>
+                <td>${escapeHtml(r.name || '-')}</td>
+                <td>${r.phone || '-'}</td>
+                <td>${escapeHtml(r.location)}</td>
+                <td>${escapeHtml(r.description)}</td>
+                <td><span class="badge ${getBadgeClass(r.severity)}">${r.severity}</span></td>
+                <td>${formatDate(r.datetime)}</td>
+                <td><span class="badge ${r.resolved ? 'bg-success' : 'bg-warning'}">${r.resolved ? 'Selesai' : 'Proses'}</span></td>
+                <td>${formatDate(r.resolvedAt)}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="navigateTo('${r.latitude}','${r.longitude}')" ${!r.latitude ? 'disabled' : ''}><i class="fas fa-location-dot"></i></button>
+                    <button class="btn btn-sm btn-outline-success" onclick="toggleResolve('${r.id}')"><i class="fas fa-check"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteReport('${r.id}')"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+        updatePetugasMap(arr);
+    }
+    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
+    window.toggleResolve = (id) => { if(!currentUser) return alert('Login dulu'); reportsRef.child(id).get().then(snap => { if(snap.exists()){ const newRes = !snap.val().resolved; reportsRef.child(id).update({ resolved: newRes, resolvedAt: newRes ? new Date().toISOString() : null }); } }); };
+    window.deleteReport = (id) => { if(!currentUser) return alert('Login dulu'); if(confirm('Hapus laporan ini?')) reportsRef.child(id).remove(); };
+    window.navigateTo = (lat,lng) => { if(lat && lng) window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank'); else alert('Koordinat tidak tersedia'); };
+    function attachReportValueListener() { reportsRef.on('value', renderReportsTable); }
+
+    function showLoginForm() {
+        document.getElementById('logoutBtn').style.display = 'none';
+        document.getElementById('petugasContent').innerHTML = `
+            <div class="p-3">
+                <div class="text-center mb-3"><i class="fas fa-shield-haltered fa-2x text-secondary"></i></div>
+                <h6 class="text-center fs-6">🔐 Akses Khusus Petugas Yudha Brama Jaya</h6>
+                <form id="loginFormPetugas">
+                    <div class="mb-2"><input type="email" id="emailPetugas" class="form-control form-control-sm" placeholder="Email petugas" required></div>
+                    <div class="mb-2"><input type="password" id="passPetugas" class="form-control form-control-sm" placeholder="Kata sandi" required></div>
+                    <button type="submit" class="btn btn-danger btn-sm w-100"><i class="fas fa-key"></i> Masuk</button>
+                </form>
+                <p class="small text-muted mt-2 mb-0">Gunakan akun resmi: petugas@lapor.com / pemadam123</p>
+            </div>
+        `;
+        document.getElementById('loginFormPetugas').addEventListener('submit', e => {
+            e.preventDefault();
+            const email = document.getElementById('emailPetugas').value.trim();
+            const pwd = document.getElementById('passPetugas').value.trim();
+            auth.signInWithEmailAndPassword(email,pwd).catch(err => alert('Login gagal: '+err.message));
+        });
+    }
+    function showPetugasPanel() {
+        document.getElementById('logoutBtn').style.display = 'inline-block';
+        document.getElementById('petugasContent').innerHTML = `
+            <div id="mapPetugas" style="height: 250px; margin-bottom: 10px; border-radius: 12px;"></div>
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
+                <span class="notif-status badge bg-dark"><i class="fas fa-bell"></i> Notifikasi: ${notificationGranted ? 'AKTIF' : 'NONAKTIF'}</span>
+                <button id="requestNotifBtnPanel" class="btn btn-sm btn-warning py-0"><i class="fas fa-bell"></i> Izinkan Notifikasi</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover align-middle small">
+                    <thead class="table-light"><tr><th>#</th><th>Nama</th><th>HP</th><th>Lokasi</th><th>Ket</th><th>Jenis</th><th>Waktu</th><th>Status</th><th>Selesai</th><th>Aksi</th></tr></thead>
+                    <tbody id="reportList"></tbody>
+                </table>
+            </div>
+            <p id="emptyMessage" class="text-muted text-center small">Belum ada laporan masuk</p>
+        `;
+        initPetugasMap();
+        attachReportValueListener();
+        attachNotificationListener();
+        const notifBtnPanel = document.getElementById('requestNotifBtnPanel');
+        if(notifBtnPanel) notifBtnPanel.onclick = () => requestNotificationPermission();
         updateNotifStatus();
-        addLog('Aplikasi siap. Untuk notifikasi di HP, klik tombol "Izinkan Notifikasi" di panel petugas.');
-    </script>
-    <div class="container mt-3 small text-muted">
-        <hr>
-        <p><strong>📱 NOTIFIKASI MOBILE:</strong> Setelah login sebagai petugas, <strong>klik tombol kuning "Izinkan Notifikasi"</strong> dan setujui permintaan izin. Setelah itu, setiap laporan baru akan memunculkan popup notifikasi di HP (walaupun halaman tidak aktif, asalkan tab tetap terbuka).</p>
-        <p><strong>🗺️ Navigasi:</strong> Tersedia tombol peta di setiap baris laporan untuk membuka rute Google Maps.</p>
-        <p><strong>⚠️ Jika notifikasi tetap tidak muncul:</strong> Pastikan browser HP mengizinkan notifikasi untuk situs ini (cek pengaturan privasi). Untuk Chrome, buka menu info situs > Izin Notifikasi > Izinkan.</p>
-    </div>
+    }
+
+    // ========== AUTH STATE ==========
+    auth.onAuthStateChanged(user => {
+        currentUser = user;
+        if(user) {
+            addLog(`Login sebagai ${user.email} (Petugas)`);
+            showPetugasPanel();
+        } else {
+            addLog('Belum login, silakan masuk sebagai petugas');
+            showLoginForm();
+            if(childAddedListener) reportsRef.off('child_added', childAddedListener);
+        }
+    });
+    document.getElementById('logoutBtn')?.addEventListener('click', () => auth.signOut().then(() => { if(petugasMap) { petugasMap.remove(); petugasMap = null; } reportsRef.off('value'); addLog('Logout berhasil'); }));
+    document.getElementById('requestNotifBtn')?.addEventListener('click', () => requestNotificationPermission());
+
+    // ========== FORM PELAPOR + MAP PICKER ==========
+    const locationInput = document.getElementById('location');
+    const latitudeInput = document.getElementById('latitude');
+    const longitudeInput = document.getElementById('longitude');
+    const coordDisplay = document.getElementById('coordDisplay');
+    let selectedLat=null, selectedLng=null, pickerMap=null, pickerMarker=null;
+    function setDefaultDateTime() {
+        const now = new Date();
+        document.getElementById('datetime').value = now.toISOString().slice(0,16);
+    }
+    setDefaultDateTime();
+
+    document.getElementById('mapModal').addEventListener('shown.bs.modal', function() {
+        if(!pickerMap) {
+            pickerMap = L.map('mapPicker').setView([-3.322, 126.982], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(pickerMap);
+            if(navigator.geolocation) navigator.geolocation.getCurrentPosition(pos => pickerMap.setView([pos.coords.latitude, pos.coords.longitude], 14));
+            pickerMap.on('click', e => placeMarker(e.latlng.lat, e.latlng.lng));
+        }
+    });
+    function placeMarker(lat,lng) {
+        if(pickerMarker) pickerMarker.setLatLng([lat,lng]);
+        else pickerMarker = L.marker([lat,lng], {draggable:true}).addTo(pickerMap).on('dragend', e => updateSelected(e.target.getLatLng().lat, e.target.getLatLng().lng));
+        updateSelected(lat,lng);
+    }
+    function updateSelected(lat,lng) {
+        selectedLat=lat; selectedLng=lng;
+        document.getElementById('pickerInfo').innerHTML = `<i class="fas fa-map-pin"></i> Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        document.getElementById('confirmLocationBtn').disabled = false;
+    }
+    document.getElementById('confirmLocationBtn').addEventListener('click', () => {
+        if(selectedLat && selectedLng) {
+            latitudeInput.value = selectedLat;
+            longitudeInput.value = selectedLng;
+            coordDisplay.innerText = `📍 ${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${selectedLat}&lon=${selectedLng}&zoom=18`)
+                .then(r=>r.json()).then(data => { if(data.display_name) locationInput.value = data.display_name; })
+                .catch(()=> locationInput.value = `${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`);
+            bootstrap.Modal.getInstance(document.getElementById('mapModal')).hide();
+        }
+    });
+    document.getElementById('reportForm').addEventListener('submit', e => {
+        e.preventDefault();
+        if(!locationInput.value.trim() || !document.getElementById('name').value.trim() || !document.getElementById('phone').value.trim() || !document.getElementById('severity').value || !document.getElementById('description').value.trim() || !document.getElementById('datetime').value)
+            return alert('Lengkapi semua data laporan!');
+        const newReport = {
+            location: locationInput.value.trim(),
+            name: document.getElementById('name').value.trim(),
+            phone: document.getElementById('phone').value.trim(),
+            severity: document.getElementById('severity').value,
+            description: document.getElementById('description').value.trim(),
+            datetime: document.getElementById('datetime').value,
+            latitude: latitudeInput.value ? parseFloat(latitudeInput.value) : null,
+            longitude: longitudeInput.value ? parseFloat(longitudeInput.value) : null,
+            resolved: false, resolvedAt: null
+        };
+        const submitMsg = document.getElementById('submitMessage');
+        submitMsg.style.display='block'; submitMsg.className='alert alert-info'; submitMsg.innerText='Mengirim laporan...';
+        reportsRef.push(newReport).then(() => {
+            submitMsg.className='alert alert-success'; submitMsg.innerText='✅ Laporan berhasil dikirim! Tim akan segera merespon.';
+            addLog('Laporan darurat baru terkirim');
+            document.getElementById('reportForm').reset(); setDefaultDateTime();
+            latitudeInput.value=''; longitudeInput.value=''; coordDisplay.innerText='';
+            if(pickerMarker) pickerMarker.remove();
+            setTimeout(()=>submitMsg.style.display='none',4000);
+        }).catch(err => { submitMsg.className='alert alert-danger'; submitMsg.innerText='Gagal: '+err.message; addLog(err.message,true); });
+    });
+    if(Notification.permission === 'granted') notificationGranted = true;
+    updateNotifStatus();
+    addLog('SILAPDAM Kabupaten Buru siap. Logo & Yudha Brama Jaya (diperkecil).');
+</script>
+<div class="container mt-2 footer-note">
+    <p class="mb-1"><i class="fas fa-bell"></i> <strong>Notifikasi HP:</strong> Login sebagai petugas → tekan tombol kuning "Izinkan Notifikasi" → izinkan akses. Setiap laporan baru akan memicu popup realtime.</p>
+    <p class="mb-0"><i class="fas fa-map-marked-alt"></i> <strong>Navigasi & Logo resmi:</strong> Tampilan lambang Kabupaten Buru (Rete Mena Bara Sehe) dan Yudha Brama Jaya (diperkecil ukurannya).</p>
+</div>
 </body>
 </html>
