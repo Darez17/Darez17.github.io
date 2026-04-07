@@ -2,564 +2,610 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM | Kabupaten Buru - Yudha Brama Jaya</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Font Awesome 6 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>SILAPDAM - Laporan Kebakaran dengan Google Maps & Chat</title>
+    <!-- Tailwind CSS + Font Awesome -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <!-- Firebase SDK -->
+    <!-- Google Maps API (ganti API_KEY dengan milik Anda) -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMapCallbacks&libraries=places" async defer></script>
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <style>
-        body { background-color: #f8f9fa; padding: 10px; font-family: system-ui, 'Segoe UI', Roboto, sans-serif; }
-        .container { max-width: 720px; margin: 0 auto; }
-        /* Gaya logo area - VERSI DIPERKECIL */
-        .logo-card {
-            background: linear-gradient(135deg, #ffffff 0%, #f5f2e8 100%);
-            border-radius: 20px;
-            padding: 4px 8px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-            border: 1px solid rgba(206, 178, 107, 0.3);
-            transition: all 0.2s;
-        }
-        .logo-card-kab {
-            background: linear-gradient(145deg, #fff9ef, #fff2e0);
-            border-left: 4px solid #b5651e;
-        }
-        .logo-card-yudha {
-            background: linear-gradient(145deg, #fff5f0, #ffe8de);
-            border-right: 4px solid #c0392b;
-        }
-        .emblem-icon {
-            font-size: 1.6rem;   /* diperkecil dari 2.2rem */
-            filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.08));
-        }
-        .motto-text {
-            font-size: 0.6rem;   /* diperkecil */
-            font-weight: 600;
-            letter-spacing: 0.3px;
-            color: #7a5c2c;
-        }
-        .yudha-motto {
-            font-size: 0.6rem;
-            font-weight: 700;
-            color: #b13e2d;
-        }
-        .logo-title {
-            font-size: 0.85rem !important;
-            font-weight: 700;
-            line-height: 1.2;
-        }
-        .header-title {
-            font-weight: 800;
-            font-size: 1.4rem;
-            background: linear-gradient(135deg, #b22222, #d94f30);
-            background-clip: text;
-            -webkit-background-clip: text;
-            color: transparent;
-        }
-        .debug-box { background: #f0f0f0; padding: 10px; border-radius: 5px; font-size: 0.75rem; color: #333; max-height: 150px; overflow-y: auto; border-left: 4px solid #ff9800; }
-        #mapPicker, #mapPetugas { height: 300px; border-radius: 8px; border: 1px solid #ddd; z-index: 1; }
-        .leaflet-container { font-size: 0.8rem; }
-        .footer-note {
-            background: #fef7e0;
-            border-radius: 20px;
-            padding: 10px;
-            border-left: 5px solid #e67e22;
-            font-size: 0.75rem;
-        }
-        @media (max-width: 576px) {
-            .emblem-icon { font-size: 1.3rem; }
-            .logo-title { font-size: 0.7rem !important; }
-            .motto-text, .yudha-motto { font-size: 0.5rem; }
-            .logo-card { padding: 2px 6px; }
-        }
+        body { background: #f1f5f9; font-family: 'Segoe UI', system-ui; }
+        .chat-box { max-height: 280px; overflow-y: auto; scroll-behavior: smooth; }
+        .message-bubble { max-width: 85%; word-wrap: break-word; }
+        .emergency-btn { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); } 70% { box-shadow: 0 0 0 10px rgba(239,68,68,0); } 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } }
+        .map-container { height: 260px; border-radius: 16px; margin-bottom: 12px; border: 1px solid #ddd; }
+        .modal-map { height: 450px; width: 100%; }
+        .report-card:hover { transform: translateY(-2px); transition: all 0.2s; }
     </style>
 </head>
-<body>
-<div class="container">
-    <!-- BARIS LOGO GABUNGAN: KABUPATEN BURU & YUDHA BRAMA JAYA (UKURAN DIPERKECIL) -->
-    <div class="row g-1 align-items-center mb-2 mt-1">
-        <div class="col-5 col-md-4 text-start">
-            <div class="logo-card logo-card-kab d-flex align-items-center gap-2 w-100 justify-content-start py-1 px-2">
-                <div class="emblem-icon text-warning-emphasis">
-                    <i class="fas fa-shield-alt fa-fw" style="color: #b5651e;"></i>
-                </div>
-                <div class="text-start">
-                    <div class="fw-bold text-dark logo-title">KABUPATEN BURU</div>
-                    <div class="motto-text"><i class="fas fa-scroll me-1"></i> RETE MENA BARA SEHE</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-2 col-md-4 text-center">
-            <h1 class="h5 mb-0 header-title">
-                <i class="fas fa-fire-extinguisher me-1"></i> SILAPDAM
-            </h1>
-            <span class="badge bg-secondary mt-1" style="font-size: 0.6rem;">Sistem Lapor Pemadam</span>
-        </div>
-        <div class="col-5 col-md-4 text-end">
-            <div class="logo-card logo-card-yudha d-flex align-items-center gap-2 w-100 justify-content-end py-1 px-2">
-                <div class="text-end">
-                    <div class="fw-bold text-danger logo-title">YUDHA BRAMA JAYA</div>
-                    <div class="yudha-motto"><i class="fas fa-flame"></i> Pemadam Kebakaran</div>
-                </div>
-                <div class="emblem-icon text-danger">
-                    <i class="fas fa-fire-extinguisher fa-fw"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <ul class="nav nav-tabs nav-fill mb-3" id="myTab" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="pelapor-tab" data-bs-toggle="tab" data-bs-target="#pelapor" type="button" role="tab"><i class="fas fa-user-edit me-1"></i> Pelapor</button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="petugas-tab" data-bs-toggle="tab" data-bs-target="#petugas" type="button" role="tab"><i class="fas fa-helmet-safety me-1"></i> Petugas</button>
-        </li>
-    </ul>
-
-    <div id="debugPanel" class="alert alert-warning small" style="display: none;">
-        <strong><i class="fas fa-bug"></i> Debug Info:</strong>
-        <div id="debugMessage"></div>
-    </div>
-
-    <div class="tab-content" id="myTabContent">
-        <!-- TAB PELAPOR -->
-        <div class="tab-pane fade show active" id="pelapor" role="tabpanel">
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-danger text-white fw-semibold py-2">
-                    <h5 class="mb-0 fs-6"><i class="fas fa-phone-alt me-2"></i>Form Laporan Darurat</h5>
-                </div>
-                <div class="card-body">
-                    <form id="reportForm">
-                        <div class="mb-2">
-                            <label for="location" class="form-label fw-semibold small"><i class="fas fa-map-marker-alt text-danger"></i> Lokasi kejadian</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control form-control-sm" id="location" placeholder="Contoh: Jl. Merdeka No.10, Namlea" required>
-                                <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#mapModal"><i class="fas fa-draw-polygon"></i> Pilih di Peta</button>
-                            </div>
-                            <input type="hidden" id="latitude" name="latitude">
-                            <input type="hidden" id="longitude" name="longitude">
-                            <small class="text-muted" id="coordDisplay"></small>
-                        </div>
-                        <div class="mb-2">
-                            <label for="name" class="form-label fw-semibold small"><i class="fas fa-user"></i> Nama Pelapor</label>
-                            <input type="text" class="form-control form-control-sm" id="name" placeholder="Nama lengkap" required>
-                        </div>
-                        <div class="mb-2">
-                            <label for="phone" class="form-label fw-semibold small"><i class="fas fa-mobile-alt"></i> Nomor HP</label>
-                            <input type="tel" class="form-control form-control-sm" id="phone" placeholder="0812xxxxxx" required>
-                        </div>
-                        <div class="mb-2">
-                            <label for="severity" class="form-label fw-semibold small"><i class="fas fa-fire"></i> Jenis kejadian</label>
-                            <select class="form-select form-select-sm" id="severity" required>
-                                <option value="">Pilih...</option>
-                                <option value="Kebakaran Pemukiman">🔥 Kebakaran Pemukiman</option>
-                                <option value="Kebakaran Hutan/Lahan">🌲 Kebakaran Hutan/Lahan</option>
-                                <option value="Kebakaran Gedung">🏢 Kebakaran Gedung</option>
-                                <option value="Kebakaran Kendaraan">🚗 Kebakaran Kendaraan</option>
-                                <option value="Kebakaran Industri">🏭 Kebakaran Industri</option>
-                                <option value="Non Kebakaran">🆘 Non Kebakaran</option>
-                                <option value="Penanganan B3">☣️ Penanganan B3</option>
-                                <option value="Lain-lain">📌 Lain-lain</option>
-                            </select>
-                        </div>
-                        <div class="mb-2">
-                            <label for="description" class="form-label fw-semibold small"><i class="fas fa-file-alt"></i> Keterangan</label>
-                            <textarea class="form-control form-control-sm" id="description" rows="2" placeholder="Contoh: Api dari dapur merambat ke atap..." required></textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label for="datetime" class="form-label fw-semibold small"><i class="fas fa-clock"></i> Waktu kejadian</label>
-                            <input type="datetime-local" class="form-control form-control-sm" id="datetime" required>
-                        </div>
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-paper-plane"></i> Kirim Laporan</button>
-                            <button type="reset" class="btn btn-secondary btn-sm"><i class="fas fa-undo-alt"></i> Reset</button>
-                        </div>
-                    </form>
-                    <div id="submitMessage" class="mt-2 alert alert-sm" style="display: none;"></div>
-                </div>
-            </div>
-            <div class="alert alert-info mt-2 small py-1">
-                <i class="fas fa-info-circle"></i> ✅ Klik tombol "Pilih di Peta" untuk menentukan lokasi tepat kejadian.
-            </div>
+<body class="p-4">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-red-700 inline-flex items-center gap-2"><i class="fas fa-fire-extinguisher"></i> SILAPDAM</h1>
+            <p class="text-gray-600">Lapor Kebakaran · Pilih Lokasi di Google Maps · Chat Real-time</p>
         </div>
 
-        <!-- TAB PETUGAS -->
-        <div class="tab-pane fade" id="petugas" role="tabpanel">
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap py-2">
-                    <h5 class="mb-0 fs-6"><i class="fas fa-tasks me-2"></i> Dashboard & Peta Laporan</h5>
+        <!-- Grid 2 kolom -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- PANEL MASYARAKAT -->
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden border">
+                <div class="bg-red-600 text-white px-5 py-3 flex items-center gap-2">
+                    <i class="fas fa-user-friends text-xl"></i>
+                    <h2 class="font-bold text-lg">Masyarakat</h2>
+                    <span class="text-xs bg-white text-red-600 rounded-full px-2 py-0.5 ml-auto">Lapor & Chat</span>
+                </div>
+                <div class="p-5 space-y-4">
+                    <!-- Identitas -->
+                    <div class="bg-gray-50 p-3 rounded-xl border">
+                        <label class="text-sm font-semibold block mb-1"><i class="fas fa-id-card"></i> Identitas Anda</label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <input type="text" id="userName" placeholder="Nama lengkap" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+                            <input type="tel" id="userPhone" placeholder="Nomor HP" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+                            <button id="setIdentityBtn" class="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-check"></i> Set</button>
+                        </div>
+                        <div id="identityStatus" class="text-xs text-green-600 mt-1"></div>
+                    </div>
+
+                    <!-- Tombol laporan darurat + form -->
                     <div>
-                        <button id="requestNotifBtn" class="btn btn-sm btn-warning me-1 py-0"><i class="fas fa-bell"></i> Izinkan Notifikasi</button>
-                        <button id="logoutBtn" class="btn btn-sm btn-outline-light py-0"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                        <button id="emergencyReportBtn" class="emergency-btn w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-lg">
+                            <i class="fas fa-map-marker-alt"></i> 🚨 LAPOR KEBAKARAN DARURAT 🚨
+                        </button>
+                        <div id="quickReportForm" class="hidden mt-4 p-4 bg-red-50 rounded-xl border space-y-3">
+                            <div id="reportMap" class="map-container"></div>
+                            <div class="flex justify-between text-xs">
+                                <span id="selectedCoords" class="text-gray-600">📍 Klik peta untuk titik lokasi</span>
+                                <button id="getLocationBtn" type="button" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-crosshairs"></i> Lokasi Saya</button>
+                            </div>
+                            <input type="text" id="quickAddress" placeholder="Detail alamat (jalan, gang, no)" class="w-full border rounded-lg px-3 py-2 text-sm">
+                            <textarea id="quickDesc" rows="2" placeholder="Deskripsi (ukuran api, kondisi)" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
+                            <div class="flex gap-2">
+                                <button id="submitQuickReport" class="bg-red-600 text-white px-4 py-2 rounded-lg flex-1">Kirim Laporan</button>
+                                <button id="cancelQuickReport" class="bg-gray-300 px-4 py-2 rounded-lg">Batal</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Daftar laporan saya -->
+                    <div>
+                        <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-list-alt text-red-500"></i> Laporan Saya</h3>
+                        <div id="myReportsList" class="space-y-3 mt-2 max-h-96 overflow-y-auto pr-1">
+                            <div class="text-center text-gray-400 py-6">Belum ada laporan. Tekan tombol merah di atas.</div>
+                        </div>
                     </div>
                 </div>
-                <div class="card-body p-2" id="petugasContent">
-                    <!-- Dinamis oleh JS -->
+            </div>
+
+            <!-- PANEL PETUGAS (dengan login) -->
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden border">
+                <div class="bg-blue-800 text-white px-5 py-3 flex items-center gap-2">
+                    <i class="fas fa-firefighter text-xl"></i>
+                    <h2 class="font-bold text-lg">Petugas Damkar</h2>
+                    <span class="text-xs bg-white text-blue-800 rounded-full px-2 py-0.5 ml-auto">Akses Terbatas</span>
+                </div>
+                <div id="officerPanelContainer" class="p-5">
+                    <div id="loginGate" class="text-center py-8">
+                        <i class="fas fa-lock text-5xl text-gray-400 mb-3"></i>
+                        <p class="text-gray-600 mb-4">Area petugas terkunci. Login untuk memantau laporan dan chat.</p>
+                        <button id="showOfficerLoginBtn" class="bg-blue-700 text-white px-6 py-2 rounded-lg"><i class="fas fa-sign-in-alt"></i> Login Petugas</button>
+                    </div>
+                    <div id="officerContent" class="hidden">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-bold text-gray-700"><i class="fas fa-bell"></i> Semua Laporan</h3>
+                            <span id="reportCount" class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">0 laporan</span>
+                            <button id="logoutOfficerBtn" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                        </div>
+                        <div id="officerMap" class="map-container" style="height: 250px;"></div>
+                        <div id="allReportsList" class="space-y-3 mt-4 max-h-80 overflow-y-auto"></div>
+                        <div class="mt-4 border-t pt-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-comments text-blue-600"></i> Chat & Penanganan</h3>
+                            <div id="officerChatPanel" class="mt-2 bg-gray-50 rounded-xl p-3 text-sm text-gray-400 text-center">Klik salah satu laporan untuk mulai chatting.</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="debug-box mt-3">
-        <strong><i class="fas fa-terminal"></i> Live Debug Log:</strong><br>
-        <span id="logContent">Menunggu koneksi Firebase...</span>
-    </div>
-</div>
-
-<!-- MODAL PETA PICKER -->
-<div class="modal fade" id="mapModal" tabindex="-1" aria-labelledby="mapModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white py-2">
-                <h5 class="modal-title fs-6" id="mapModalLabel"><i class="fas fa-map-marked-alt"></i> Geser / klik untuk menentukan titik kejadian</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-0">
-                <div id="mapPicker" style="height: 400px;"></div>
-                <div class="p-2 small bg-light">
-                    <span id="pickerInfo"><i class="fas fa-hand-pointer"></i> Klik peta untuk menempatkan marker, atau drag marker.</span>
-                </div>
-            </div>
-            <div class="modal-footer py-2">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-                <button type="button" class="btn btn-primary btn-sm" id="confirmLocationBtn" disabled><i class="fas fa-check-circle"></i> Konfirmasi Lokasi</button>
-            </div>
+    <!-- Modal Login Petugas (Firebase Auth) -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-2xl w-96 p-6 relative">
+            <button id="closeLoginModal" class="absolute top-3 right-3 text-gray-500"><i class="fas fa-times"></i></button>
+            <h3 class="text-xl font-bold text-blue-800 mb-4"><i class="fas fa-user-shield"></i> Login Petugas</h3>
+            <input type="email" id="officerEmail" placeholder="Email petugas" class="w-full border rounded-lg px-3 py-2 mb-3">
+            <input type="password" id="officerPassword" placeholder="Password" class="w-full border rounded-lg px-3 py-2 mb-4">
+            <button id="doLoginBtn" class="w-full bg-blue-700 text-white py-2 rounded-lg">Login</button>
+            <p class="text-xs text-gray-400 mt-3 text-center">Demo: petugas@lapor.com / pemadam123</p>
         </div>
     </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<script>
-    // ========== KONFIGURASI FIREBASE ==========
-    const firebaseConfig = {
-        apiKey: "AIzaSyDkEWKilk8kjdC7RcK1MJ2ktjhleyu8Ngw",
-        authDomain: "lapor-pemadam-630b0.firebaseapp.com",
-        databaseURL: "https://lapor-pemadam-630b0-default-rtdb.asia-southeast1.firebasedatabase.app",
-        projectId: "lapor-pemadam-630b0",
-        storageBucket: "lapor-pemadam-630b0.firebasestorage.app",
-        messagingSenderId: "884110818669",
-        appId: "1:884110818669:web:8561c7eb950f0603a2ae64"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
-    const auth = firebase.auth();
-    const reportsRef = database.ref('reports');
-
-    // ========== DEBUG LOG ==========
-    function addLog(msg, isError = false) {
-        const logEl = document.getElementById('logContent');
-        logEl.innerHTML = (isError ? '❌ ' : '✅ ') + msg + '<br>' + logEl.innerHTML;
-        if (isError) {
-            document.getElementById('debugPanel').style.display = 'block';
-            document.getElementById('debugMessage').innerHTML = msg + (msg.includes('network') ? '<br>🔧 Periksa authorized domains di Firebase Console.' : '');
-        }
-    }
-    database.ref('.info/connected').on('value', snap => {
-        addLog(snap.val() ? 'Terhubung ke Firebase Realtime Database' : 'Koneksi Firebase putus', !snap.val());
-    });
-
-    // ========== NOTIFIKASI ==========
-    let notificationGranted = false;
-    function updateNotifStatus() {
-        const statusSpan = document.querySelector('.notif-status');
-        if (statusSpan) statusSpan.innerHTML = `<i class="fas fa-bell"></i> Notifikasi: ${notificationGranted ? 'AKTIF ✅' : 'NONAKTIF ❌'}`;
-    }
-    async function requestNotificationPermission() {
-        if (!('Notification' in window)) {
-            addLog('Browser tidak support notifikasi', true);
-            alert('Browser tidak mendukung notifikasi push.');
-            return false;
-        }
-        if (Notification.permission === 'granted') {
-            notificationGranted = true;
-            addLog('Izin notifikasi sudah aktif');
-            updateNotifStatus();
-            return true;
-        }
-        if (Notification.permission !== 'denied') {
-            const permission = await Notification.requestPermission();
-            if (permission === 'granted') {
-                notificationGranted = true;
-                addLog('Izin notifikasi DIBERIKAN! Laporan baru akan muncul popup.');
-                updateNotifStatus();
-                return true;
-            } else {
-                addLog('Izin notifikasi ditolak', true);
-                notificationGranted = false;
-                updateNotifStatus();
-                return false;
-            }
-        } else {
-            addLog('Notifikasi diblokir permanen oleh browser', true);
-            alert('Notifikasi diblokir. Ubah izin di pengaturan browser.');
-            notificationGranted = false;
-            updateNotifStatus();
-            return false;
-        }
-    }
-    function showBrowserNotification(title, body, icon = 'https://cdn-icons-png.flaticon.com/512/484/484167.png') {
-        if (!notificationGranted) return false;
-        try {
-            const notif = new Notification(title, { body, icon, vibrate: [200, 100, 200] });
-            notif.onclick = () => {
-                window.focus();
-                document.querySelector('#petugas-tab')?.click();
-            };
-            addLog(`Notifikasi dikirim: ${title}`);
-            return true;
-        } catch (e) {
-            addLog(`Gagal notifikasi: ${e.message}`, true);
-            return false;
-        }
-    }
-    function showInAppAlert(title, message) {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-2 shadow-lg';
-        alertDiv.style.zIndex = '9999';
-        alertDiv.style.minWidth = '280px';
-        alertDiv.innerHTML = `<strong><i class="fas fa-fire"></i> ${title}</strong><br>${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-        document.body.appendChild(alertDiv);
-        setTimeout(() => alertDiv.remove(), 6000);
-    }
-
-    // ========== LISTENER LAPORAN BARU ==========
-    let childAddedListener = null;
-    let isInitialLoad = true;
-    function attachNotificationListener() {
-        if (childAddedListener) reportsRef.off('child_added', childAddedListener);
-        isInitialLoad = true;
-        setTimeout(() => { isInitialLoad = false; addLog('Mode notifikasi siap: laporan baru akan memicu peringatan.'); }, 2500);
-        childAddedListener = reportsRef.on('child_added', (snapshot) => {
-            if (isInitialLoad) return;
-            const report = snapshot.val();
-            if (!report || !currentUser) return;
-            const title = `🚨 Laporan Baru - ${report.severity}`;
-            const body = `${report.name} | ${report.location}\n📝 ${report.description.substring(0, 60)}`;
-            const shown = showBrowserNotification(title, body);
-            if (!shown) showInAppAlert(title, body);
-            if (navigator.vibrate) navigator.vibrate(200);
-        });
-    }
-
-    // ========== PETUGAS PANEL ==========
-    let petugasMap = null, markerGroup = null;
-    let currentUser = null;
-
-    function initPetugasMap() {
-        if (petugasMap) return;
-        petugasMap = L.map('mapPetugas').setView([-3.322, 126.982], 11);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(petugasMap);
-        markerGroup = L.layerGroup().addTo(petugasMap);
-    }
-    function updatePetugasMap(reportsArray) {
-        if (!petugasMap || !markerGroup) return;
-        markerGroup.clearLayers();
-        let bounds = [];
-        reportsArray.forEach(r => {
-            if (r.latitude && r.longitude) {
-                let marker = L.marker([r.latitude, r.longitude]).bindPopup(`
-                    <b>🧑‍🚒 ${r.name}</b><br>📍 ${r.location}<br>🔥 ${r.severity}<br>
-                    <span class="badge ${r.resolved ? 'bg-success' : 'bg-warning'}">${r.resolved ? 'SELESAI' : 'PROSES'}</span><br>
-                    <a href="https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}" target="_blank" class="btn btn-sm btn-primary mt-1"><i class="fas fa-directions"></i> Navigasi</a>
-                `);
-                marker.addTo(markerGroup);
-                bounds.push([r.latitude, r.longitude]);
-            }
-        });
-        if (bounds.length) petugasMap.fitBounds(bounds, { padding: [30,30] });
-    }
-    function formatDate(d) { return d ? new Date(d).toLocaleString('id-ID') : '-'; }
-    function getBadgeClass(sev) {
-        if (sev.includes('Kebakaran')) return 'bg-danger';
-        if (sev === 'Non Kebakaran') return 'bg-secondary';
-        if (sev === 'Penanganan B3') return 'bg-warning';
-        return 'bg-primary';
-    }
-    function renderReportsTable(snapshot) {
-        const tbody = document.getElementById('reportList');
-        const emptyMsg = document.getElementById('emptyMessage');
-        const reports = snapshot.val();
-        if (!reports) {
-            if(tbody) tbody.innerHTML = '';
-            if(emptyMsg) emptyMsg.style.display = 'block';
-            if(markerGroup) markerGroup.clearLayers();
-            return;
-        }
-        if(emptyMsg) emptyMsg.style.display = 'none';
-        const arr = Object.keys(reports).map(k => ({ id: k, ...reports[k] })).sort((a,b)=>new Date(b.datetime)-new Date(a.datetime));
-        let html = '';
-        arr.forEach((r,idx) => {
-            html += `<tr>
-                <td>${idx+1}</td>
-                <td>${escapeHtml(r.name || '-')}</td>
-                <td>${r.phone || '-'}</td>
-                <td>${escapeHtml(r.location)}</td>
-                <td>${escapeHtml(r.description)}</td>
-                <td><span class="badge ${getBadgeClass(r.severity)}">${r.severity}</span></td>
-                <td>${formatDate(r.datetime)}</td>
-                <td><span class="badge ${r.resolved ? 'bg-success' : 'bg-warning'}">${r.resolved ? 'Selesai' : 'Proses'}</span></td>
-                <td>${formatDate(r.resolvedAt)}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="navigateTo('${r.latitude}','${r.longitude}')" ${!r.latitude ? 'disabled' : ''}><i class="fas fa-location-dot"></i></button>
-                    <button class="btn btn-sm btn-outline-success" onclick="toggleResolve('${r.id}')"><i class="fas fa-check"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteReport('${r.id}')"><i class="fas fa-trash"></i></button>
-                </td>
-            </tr>`;
-        });
-        tbody.innerHTML = html;
-        updatePetugasMap(arr);
-    }
-    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
-    window.toggleResolve = (id) => { if(!currentUser) return alert('Login dulu'); reportsRef.child(id).get().then(snap => { if(snap.exists()){ const newRes = !snap.val().resolved; reportsRef.child(id).update({ resolved: newRes, resolvedAt: newRes ? new Date().toISOString() : null }); } }); };
-    window.deleteReport = (id) => { if(!currentUser) return alert('Login dulu'); if(confirm('Hapus laporan ini?')) reportsRef.child(id).remove(); };
-    window.navigateTo = (lat,lng) => { if(lat && lng) window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank'); else alert('Koordinat tidak tersedia'); };
-    function attachReportValueListener() { reportsRef.on('value', renderReportsTable); }
-
-    function showLoginForm() {
-        document.getElementById('logoutBtn').style.display = 'none';
-        document.getElementById('petugasContent').innerHTML = `
-            <div class="p-3">
-                <div class="text-center mb-3"><i class="fas fa-shield-haltered fa-2x text-secondary"></i></div>
-                <h6 class="text-center fs-6">🔐 Akses Khusus Petugas Yudha Brama Jaya</h6>
-                <form id="loginFormPetugas">
-                    <div class="mb-2"><input type="email" id="emailPetugas" class="form-control form-control-sm" placeholder="Email petugas" required></div>
-                    <div class="mb-2"><input type="password" id="passPetugas" class="form-control form-control-sm" placeholder="Kata sandi" required></div>
-                    <button type="submit" class="btn btn-danger btn-sm w-100"><i class="fas fa-key"></i> Masuk</button>
-                </form>
-                <p class="small text-muted mt-2 mb-0">Gunakan akun resmi: petugas@lapor.com / pemadam123</p>
+    <!-- Modal Peta Besar (untuk melihat lokasi) -->
+    <div id="mapModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden p-4">
+        <div class="bg-white rounded-2xl w-full max-w-3xl overflow-hidden">
+            <div class="bg-blue-700 text-white px-4 py-3 flex justify-between">
+                <h3 class="font-bold"><i class="fas fa-map-marked-alt"></i> Lokasi Kejadian</h3>
+                <button id="closeMapModal" class="text-white text-2xl">&times;</button>
             </div>
-        `;
-        document.getElementById('loginFormPetugas').addEventListener('submit', e => {
-            e.preventDefault();
-            const email = document.getElementById('emailPetugas').value.trim();
-            const pwd = document.getElementById('passPetugas').value.trim();
-            auth.signInWithEmailAndPassword(email,pwd).catch(err => alert('Login gagal: '+err.message));
-        });
-    }
-    function showPetugasPanel() {
-        document.getElementById('logoutBtn').style.display = 'inline-block';
-        document.getElementById('petugasContent').innerHTML = `
-            <div id="mapPetugas" style="height: 250px; margin-bottom: 10px; border-radius: 12px;"></div>
-            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
-                <span class="notif-status badge bg-dark"><i class="fas fa-bell"></i> Notifikasi: ${notificationGranted ? 'AKTIF' : 'NONAKTIF'}</span>
-                <button id="requestNotifBtnPanel" class="btn btn-sm btn-warning py-0"><i class="fas fa-bell"></i> Izinkan Notifikasi</button>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover align-middle small">
-                    <thead class="table-light"><tr><th>#</th><th>Nama</th><th>HP</th><th>Lokasi</th><th>Ket</th><th>Jenis</th><th>Waktu</th><th>Status</th><th>Selesai</th><th>Aksi</th></tr></thead>
-                    <tbody id="reportList"></tbody>
-                </table>
-            </div>
-            <p id="emptyMessage" class="text-muted text-center small">Belum ada laporan masuk</p>
-        `;
-        initPetugasMap();
-        attachReportValueListener();
-        attachNotificationListener();
-        const notifBtnPanel = document.getElementById('requestNotifBtnPanel');
-        if(notifBtnPanel) notifBtnPanel.onclick = () => requestNotificationPermission();
-        updateNotifStatus();
-    }
+            <div id="modalMapContainer" class="modal-map"></div>
+            <div class="p-2 text-center"><button id="navigateBtn" class="bg-green-600 text-white px-4 py-1 rounded text-sm"><i class="fas fa-directions"></i> Buka Google Maps Navigasi</button></div>
+        </div>
+    </div>
 
-    // ========== AUTH STATE ==========
-    auth.onAuthStateChanged(user => {
-        currentUser = user;
-        if(user) {
-            addLog(`Login sebagai ${user.email} (Petugas)`);
-            showPetugasPanel();
-        } else {
-            addLog('Belum login, silakan masuk sebagai petugas');
-            showLoginForm();
-            if(childAddedListener) reportsRef.off('child_added', childAddedListener);
-        }
-    });
-    document.getElementById('logoutBtn')?.addEventListener('click', () => auth.signOut().then(() => { if(petugasMap) { petugasMap.remove(); petugasMap = null; } reportsRef.off('value'); addLog('Logout berhasil'); }));
-    document.getElementById('requestNotifBtn')?.addEventListener('click', () => requestNotificationPermission());
-
-    // ========== FORM PELAPOR + MAP PICKER ==========
-    const locationInput = document.getElementById('location');
-    const latitudeInput = document.getElementById('latitude');
-    const longitudeInput = document.getElementById('longitude');
-    const coordDisplay = document.getElementById('coordDisplay');
-    let selectedLat=null, selectedLng=null, pickerMap=null, pickerMarker=null;
-    function setDefaultDateTime() {
-        const now = new Date();
-        document.getElementById('datetime').value = now.toISOString().slice(0,16);
-    }
-    setDefaultDateTime();
-
-    document.getElementById('mapModal').addEventListener('shown.bs.modal', function() {
-        if(!pickerMap) {
-            pickerMap = L.map('mapPicker').setView([-3.322, 126.982], 12);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(pickerMap);
-            if(navigator.geolocation) navigator.geolocation.getCurrentPosition(pos => pickerMap.setView([pos.coords.latitude, pos.coords.longitude], 14));
-            pickerMap.on('click', e => placeMarker(e.latlng.lat, e.latlng.lng));
-        }
-    });
-    function placeMarker(lat,lng) {
-        if(pickerMarker) pickerMarker.setLatLng([lat,lng]);
-        else pickerMarker = L.marker([lat,lng], {draggable:true}).addTo(pickerMap).on('dragend', e => updateSelected(e.target.getLatLng().lat, e.target.getLatLng().lng));
-        updateSelected(lat,lng);
-    }
-    function updateSelected(lat,lng) {
-        selectedLat=lat; selectedLng=lng;
-        document.getElementById('pickerInfo').innerHTML = `<i class="fas fa-map-pin"></i> Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-        document.getElementById('confirmLocationBtn').disabled = false;
-    }
-    document.getElementById('confirmLocationBtn').addEventListener('click', () => {
-        if(selectedLat && selectedLng) {
-            latitudeInput.value = selectedLat;
-            longitudeInput.value = selectedLng;
-            coordDisplay.innerText = `📍 ${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${selectedLat}&lon=${selectedLng}&zoom=18`)
-                .then(r=>r.json()).then(data => { if(data.display_name) locationInput.value = data.display_name; })
-                .catch(()=> locationInput.value = `${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`);
-            bootstrap.Modal.getInstance(document.getElementById('mapModal')).hide();
-        }
-    });
-    document.getElementById('reportForm').addEventListener('submit', e => {
-        e.preventDefault();
-        if(!locationInput.value.trim() || !document.getElementById('name').value.trim() || !document.getElementById('phone').value.trim() || !document.getElementById('severity').value || !document.getElementById('description').value.trim() || !document.getElementById('datetime').value)
-            return alert('Lengkapi semua data laporan!');
-        const newReport = {
-            location: locationInput.value.trim(),
-            name: document.getElementById('name').value.trim(),
-            phone: document.getElementById('phone').value.trim(),
-            severity: document.getElementById('severity').value,
-            description: document.getElementById('description').value.trim(),
-            datetime: document.getElementById('datetime').value,
-            latitude: latitudeInput.value ? parseFloat(latitudeInput.value) : null,
-            longitude: longitudeInput.value ? parseFloat(longitudeInput.value) : null,
-            resolved: false, resolvedAt: null
+    <script>
+        // ----------------------------- KONFIGURASI FIREBASE -----------------------------
+        const firebaseConfig = {
+            apiKey: "AIzaSyDkEWKilk8kjdC7RcK1MJ2ktjhleyu8Ngw",
+            authDomain: "lapor-pemadam-630b0.firebaseapp.com",
+            databaseURL: "https://lapor-pemadam-630b0-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "lapor-pemadam-630b0",
+            storageBucket: "lapor-pemadam-630b0.firebasestorage.app",
+            messagingSenderId: "884110818669",
+            appId: "1:884110818669:web:8561c7eb950f0603a2ae64"
         };
-        const submitMsg = document.getElementById('submitMessage');
-        submitMsg.style.display='block'; submitMsg.className='alert alert-info'; submitMsg.innerText='Mengirim laporan...';
-        reportsRef.push(newReport).then(() => {
-            submitMsg.className='alert alert-success'; submitMsg.innerText='✅ Laporan berhasil dikirim! Tim akan segera merespon.';
-            addLog('Laporan darurat baru terkirim');
-            document.getElementById('reportForm').reset(); setDefaultDateTime();
-            latitudeInput.value=''; longitudeInput.value=''; coordDisplay.innerText='';
-            if(pickerMarker) pickerMarker.remove();
-            setTimeout(()=>submitMsg.style.display='none',4000);
-        }).catch(err => { submitMsg.className='alert alert-danger'; submitMsg.innerText='Gagal: '+err.message; addLog(err.message,true); });
-    });
-    if(Notification.permission === 'granted') notificationGranted = true;
-    updateNotifStatus();
-    addLog('SILAPDAM Kabupaten Buru siap. Logo & Yudha Brama Jaya (diperkecil).');
-</script>
-<div class="container mt-2 footer-note">
-    <p class="mb-1"><i class="fas fa-bell"></i> <strong>Notifikasi HP:</strong> Login sebagai petugas → tekan tombol kuning "Izinkan Notifikasi" → izinkan akses. Setiap laporan baru akan memicu popup realtime.</p>
-    <p class="mb-0"><i class="fas fa-map-marked-alt"></i> <strong>Navigasi & Logo resmi:</strong> Tampilan lambang Kabupaten Buru (Rete Mena Bara Sehe) dan Yudha Brama Jaya (diperkecil ukurannya).</p>
-</div>
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const auth = firebase.auth();
+        const reportsRef = database.ref('reports');
+
+        // Variabel global
+        let currentUser = { name: '', phone: '' };
+        let isOfficerLoggedIn = false;
+        let selectedReportId = null;
+        let reports = []; // cache dari Firebase
+
+        // Variabel Google Maps
+        let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
+        let officerMap = null, officerMarkers = [];
+        let modalMap = null, modalMarker = null, currentModalLat = null, currentModalLng = null;
+
+        // Fungsi untuk memuat data dari Firebase ke array cache
+        function loadReportsFromFirebase() {
+            reportsRef.on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    reports = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                    // Pastikan setiap laporan memiliki messages
+                    reports.forEach(r => { if (!r.messages) r.messages = []; if (!r.status) r.status = 'pending'; });
+                } else {
+                    reports = [];
+                }
+                // Render ulang UI
+                renderMyReports();
+                if (isOfficerLoggedIn) {
+                    renderAllReportsForOfficer();
+                    updateOfficerMap();
+                    updateReportCount();
+                }
+            });
+        }
+
+        // Kirim laporan baru ke Firebase
+        function sendReportToFirebase(report) {
+            return reportsRef.push(report);
+        }
+
+        // Update status laporan
+        function updateReportStatus(reportId, newStatus) {
+            reportsRef.child(reportId).update({ status: newStatus });
+        }
+
+        // Tambah pesan chat
+        function addMessageToReport(reportId, senderRole, text) {
+            const reportRef = reportsRef.child(reportId);
+            reportRef.child('messages').once('value', (snap) => {
+                let msgs = snap.val() || [];
+                msgs.push({ sender: senderRole, text: text, timestamp: new Date().toISOString() });
+                reportRef.child('messages').set(msgs);
+            });
+        }
+
+        // Inisialisasi Google Maps untuk form laporan
+        function initReportMap() {
+            if (reportMap) return;
+            const center = { lat: -3.322, lng: 126.982 }; // Koordinat Kab. Buru
+            reportMap = new google.maps.Map(document.getElementById('reportMap'), {
+                zoom: 13,
+                center: center,
+                mapTypeId: 'roadmap'
+            });
+            reportMap.addListener('click', (e) => {
+                const lat = e.latLng.lat();
+                const lng = e.latLng.lng();
+                placeReportMarker(lat, lng);
+            });
+        }
+
+        function placeReportMarker(lat, lng) {
+            if (reportMarker) reportMarker.setMap(null);
+            reportMarker = new google.maps.Marker({
+                position: { lat, lng },
+                map: reportMap,
+                draggable: true,
+                animation: google.maps.Animation.DROP
+            });
+            reportMarker.addListener('dragend', () => {
+                const pos = reportMarker.getPosition();
+                selectedLat = pos.lat();
+                selectedLng = pos.lng();
+                document.getElementById('selectedCoords').innerHTML = `📍 Lokasi: ${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
+            });
+            selectedLat = lat;
+            selectedLng = lng;
+            document.getElementById('selectedCoords').innerHTML = `📍 Lokasi: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            reportMap.setCenter({ lat, lng });
+        }
+
+        function getUserLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    placeReportMarker(lat, lng);
+                    reportMap.setCenter({ lat, lng });
+                    reportMap.setZoom(15);
+                }, () => alert("Gagal mengambil lokasi."));
+            } else alert("Browser tidak support geolokasi.");
+        }
+
+        // Inisialisasi peta petugas
+        function initOfficerMap() {
+            if (officerMap) return;
+            officerMap = new google.maps.Map(document.getElementById('officerMap'), {
+                zoom: 10,
+                center: { lat: -3.322, lng: 126.982 }
+            });
+        }
+
+        function updateOfficerMap() {
+            if (!officerMap) initOfficerMap();
+            // hapus marker lama
+            officerMarkers.forEach(m => m.setMap(null));
+            officerMarkers = [];
+            const bounds = new google.maps.LatLngBounds();
+            reports.forEach(r => {
+                if (r.latitude && r.longitude) {
+                    const latlng = { lat: r.latitude, lng: r.longitude };
+                    const marker = new google.maps.Marker({
+                        position: latlng,
+                        map: officerMap,
+                        title: `${r.name} - ${r.location}`,
+                        icon: r.resolved ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+                    });
+                    const info = `<b>${r.name}</b><br>${r.location}<br>${r.severity}<br>Status: ${r.resolved ? 'Selesai' : 'Proses'}`;
+                    const infoWindow = new google.maps.InfoWindow({ content: info });
+                    marker.addListener('click', () => infoWindow.open(officerMap, marker));
+                    officerMarkers.push(marker);
+                    bounds.extend(latlng);
+                }
+            });
+            if (officerMarkers.length) officerMap.fitBounds(bounds);
+        }
+
+        // Tampilkan modal peta besar
+        function showMapModal(lat, lng, address) {
+            currentModalLat = lat; currentModalLng = lng;
+            const modal = document.getElementById('mapModal');
+            const container = document.getElementById('modalMapContainer');
+            modal.classList.remove('hidden');
+            if (modalMap) modalMap = null;
+            modalMap = new google.maps.Map(container, {
+                zoom: 16,
+                center: { lat, lng },
+                mapTypeId: 'roadmap'
+            });
+            if (modalMarker) modalMarker.setMap(null);
+            modalMarker = new google.maps.Marker({
+                position: { lat, lng },
+                map: modalMap,
+                title: address
+            });
+            document.getElementById('navigateBtn').onclick = () => {
+                window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
+            };
+        }
+
+        // Render daftar laporan masyarakat (dari cache)
+        function renderMyReports() {
+            const container = document.getElementById('myReportsList');
+            if (!container) return;
+            const { name, phone } = currentUser;
+            if (!name || !phone) {
+                container.innerHTML = `<div class="text-center text-gray-400 py-6">Silakan set identitas Anda terlebih dahulu.</div>`;
+                return;
+            }
+            const myReports = reports.filter(r => r.name === name && r.phone === phone);
+            if (myReports.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-400 py-6">Belum ada laporan dengan identitas "${name}".</div>`;
+                return;
+            }
+            container.innerHTML = myReports.map(report => `
+                <div class="border rounded-xl p-3 shadow-sm bg-white">
+                    <div class="flex justify-between">
+                        <div>
+                            <p class="font-bold">📍 ${report.location}</p>
+                            <p class="text-xs text-gray-500">${new Date(report.datetime).toLocaleString()}</p>
+                            <p class="text-sm">🔥 ${report.severity}</p>
+                            <p class="text-sm">📝 ${report.description.substring(0, 60)}</p>
+                            <button onclick="showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs mt-1"><i class="fas fa-map-marker-alt"></i> Lihat Peta</button>
+                        </div>
+                        <button onclick="openUserChat('${report.id}')" class="bg-red-100 text-red-700 rounded-full px-3 py-1 text-sm"><i class="fas fa-comment-dots"></i> Chat</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render semua laporan untuk petugas
+        function renderAllReportsForOfficer() {
+            const container = document.getElementById('allReportsList');
+            if (!container) return;
+            if (reports.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-400 py-4">Belum ada laporan.</div>`;
+                return;
+            }
+            container.innerHTML = reports.map(report => `
+                <div onclick="selectReportForOfficer('${report.id}')" class="border rounded-xl p-2 cursor-pointer hover:shadow-md ${selectedReportId === report.id ? 'bg-blue-50 border-blue-400' : 'bg-white'}">
+                    <div class="flex justify-between">
+                        <div class="text-sm">
+                            <b>${report.name}</b> (${report.phone})<br>
+                            📍 ${report.location}<br>
+                            🔥 ${report.severity}<br>
+                            <span class="badge ${report.status === 'pending' ? 'bg-yellow-200' : report.status === 'in_progress' ? 'bg-blue-200' : 'bg-green-200'} px-1 rounded">${report.status || 'pending'}</span>
+                        </div>
+                        <button onclick="event.stopPropagation(); showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs"><i class="fas fa-map"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Chat petugas
+        function renderOfficerChatDetail(reportId) {
+            const report = reports.find(r => r.id === reportId);
+            const panel = document.getElementById('officerChatPanel');
+            if (!report) { panel.innerHTML = '<p class="text-gray-400">Pilih laporan</p>'; return; }
+            const messagesHtml = (report.messages || []).map(msg => `
+                <div class="flex ${msg.sender === 'officer' ? 'justify-end' : 'justify-start'} mb-2">
+                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'officer' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `).join('');
+            panel.innerHTML = `
+                <div class="bg-white p-3 rounded-lg">
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <div><b>${report.name}</b> - ${report.phone}<br><span class="text-xs">📍 ${report.location}</span></div>
+                        <div class="flex gap-2">
+                            <select id="statusSelect" class="border rounded text-sm p-1">
+                                <option value="pending" ${report.status === 'pending' ? 'selected' : ''}>Menunggu</option>
+                                <option value="in_progress" ${report.status === 'in_progress' ? 'selected' : ''}>Dalam Perjalanan</option>
+                                <option value="done" ${report.status === 'done' ? 'selected' : ''}>Selesai</option>
+                            </select>
+                            <button id="officerViewMapBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-map"></i> Peta</button>
+                            <button id="officerCallBtn" class="bg-green-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-phone"></i> Telepon</button>
+                        </div>
+                    </div>
+                    <div id="officerChatMessages" class="chat-box p-2 h-56 overflow-y-auto my-2">${messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>'}</div>
+                    <div class="flex gap-2">
+                        <input type="text" id="officerMsgInput" class="flex-1 border rounded px-2 py-1 text-sm" placeholder="Ketik pesan...">
+                        <button id="officerSendMsg" class="bg-blue-600 text-white px-3 py-1 rounded"><i class="fas fa-paper-plane"></i></button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('officerSendMsg')?.addEventListener('click', () => {
+                const input = document.getElementById('officerMsgInput');
+                if (input.value.trim()) {
+                    addMessageToReport(reportId, 'officer', input.value);
+                    input.value = '';
+                    // refresh chat setelah delay
+                    setTimeout(() => renderOfficerChatDetail(reportId), 300);
+                }
+            });
+            document.getElementById('officerViewMapBtn')?.addEventListener('click', () => showMapModal(report.latitude, report.longitude, report.location));
+            document.getElementById('officerCallBtn')?.addEventListener('click', () => alert(`📞 Simulasi panggilan ke ${report.phone}`));
+            document.getElementById('statusSelect')?.addEventListener('change', (e) => updateReportStatus(reportId, e.target.value));
+            const chatDiv = document.getElementById('officerChatMessages');
+            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        // Chat masyarakat (modal)
+        window.openUserChat = function(reportId) {
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            if (currentUser.name !== report.name || currentUser.phone !== report.phone) {
+                alert("Identitas tidak cocok dengan laporan!");
+                return;
+            }
+            const modalHtml = `
+                <div id="userChatModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                        <div class="bg-red-600 text-white p-3 flex justify-between">
+                            <h3 class="font-bold">Chat dengan Petugas</h3>
+                            <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
+                        </div>
+                        <div class="p-2 border-b">📍 ${report.location}</div>
+                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto">${renderUserMessages(report.messages || [])}</div>
+                        <div class="p-3 border-t flex gap-2">
+                            <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
+                            <button id="userSendMsgBtn" class="bg-red-600 text-white px-3 rounded"><i class="fas fa-paper-plane"></i></button>
+                            <button id="userCallBtn" class="bg-green-600 text-white px-3 rounded"><i class="fas fa-phone"></i></button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            document.getElementById('userSendMsgBtn')?.addEventListener('click', () => {
+                const input = document.getElementById('userMsgInput');
+                if (input.value.trim()) {
+                    addMessageToReport(reportId, 'user', input.value);
+                    input.value = '';
+                    setTimeout(() => {
+                        const updated = reports.find(r => r.id === reportId);
+                        document.getElementById('userChatMessages').innerHTML = renderUserMessages(updated.messages || []);
+                        const chatDiv = document.getElementById('userChatMessages');
+                        if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+                    }, 300);
+                }
+            });
+            document.getElementById('userCallBtn')?.addEventListener('click', () => alert("📞 Menghubungi posko damkar (112)"));
+            const chatDiv = document.getElementById('userChatMessages');
+            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+        };
+        window.closeUserChatModal = () => document.getElementById('userChatModal')?.remove();
+        function renderUserMessages(messages) {
+            if (!messages.length) return '<p class="text-gray-400 text-center">Belum ada percakapan</p>';
+            return messages.map(msg => `
+                <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
+                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Fungsi untuk submit laporan baru (masyarakat)
+        function submitReport() {
+            const address = document.getElementById('quickAddress').value.trim();
+            const desc = document.getElementById('quickDesc').value.trim();
+            const severity = document.getElementById('severity')?.value || 'Kebakaran';
+            const datetime = new Date().toISOString();
+            if (!currentUser.name || !currentUser.phone) return alert('Set identitas dulu!');
+            if (!address) return alert('Alamat wajib diisi!');
+            if (!selectedLat || !selectedLng) return alert('Klik peta untuk menentukan titik lokasi!');
+            const newReport = {
+                name: currentUser.name,
+                phone: currentUser.phone,
+                location: address,
+                description: desc,
+                severity: severity,
+                datetime: datetime,
+                latitude: selectedLat,
+                longitude: selectedLng,
+                status: 'pending',
+                resolved: false,
+                messages: []
+            };
+            sendReportToFirebase(newReport).then(() => {
+                alert('Laporan terkirim! Petugas akan segera merespon.');
+                document.getElementById('quickAddress').value = '';
+                document.getElementById('quickDesc').value = '';
+                document.getElementById('quickReportForm').classList.add('hidden');
+                if (reportMarker) reportMarker.setMap(null);
+                selectedLat = selectedLng = null;
+                document.getElementById('selectedCoords').innerHTML = '📍 Klik peta untuk menentukan titik lokasi';
+                renderMyReports();
+            }).catch(err => alert('Gagal kirim: ' + err.message));
+        }
+
+        // ========== AUTH & UI EVENT ==========
+        function showLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
+        function hideLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
+        function doLogin() {
+            const email = document.getElementById('officerEmail').value.trim();
+            const pwd = document.getElementById('officerPassword').value.trim();
+            auth.signInWithEmailAndPassword(email, pwd).then(() => {
+                hideLoginModal();
+                isOfficerLoggedIn = true;
+                document.getElementById('loginGate').classList.add('hidden');
+                document.getElementById('officerContent').classList.remove('hidden');
+                initOfficerMap();
+                updateOfficerMap();
+                renderAllReportsForOfficer();
+                updateReportCount();
+            }).catch(err => alert('Login gagal: ' + err.message));
+        }
+        function logoutOfficer() {
+            auth.signOut().then(() => {
+                isOfficerLoggedIn = false;
+                document.getElementById('loginGate').classList.remove('hidden');
+                document.getElementById('officerContent').classList.add('hidden');
+                if (officerMap) { officerMap = null; }
+                selectedReportId = null;
+            });
+        }
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                isOfficerLoggedIn = true;
+                document.getElementById('loginGate').classList.add('hidden');
+                document.getElementById('officerContent').classList.remove('hidden');
+                initOfficerMap();
+                updateOfficerMap();
+                renderAllReportsForOfficer();
+                updateReportCount();
+            } else {
+                isOfficerLoggedIn = false;
+                document.getElementById('loginGate').classList.remove('hidden');
+                document.getElementById('officerContent').classList.add('hidden');
+            }
+        });
+
+        function updateReportCount() {
+            const span = document.getElementById('reportCount');
+            if (span) span.innerText = reports.length + ' laporan';
+        }
+
+        window.selectReportForOfficer = function(id) {
+            if (isOfficerLoggedIn) {
+                selectedReportId = id;
+                renderAllReportsForOfficer();
+                renderOfficerChatDetail(id);
+            }
+        };
+
+        function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+
+        // Event binding
+        document.getElementById('setIdentityBtn')?.addEventListener('click', () => {
+            const name = document.getElementById('userName').value.trim();
+            const phone = document.getElementById('userPhone').value.trim();
+            if (name && phone) {
+                currentUser = { name, phone };
+                localStorage.setItem('currentUserName', name);
+                localStorage.setItem('currentUserPhone', phone);
+                document.getElementById('identityStatus').innerHTML = `<i class="fas fa-check-circle"></i> Identitas: ${name} (${phone})`;
+                renderMyReports();
+            } else alert('Isi nama dan nomor HP!');
+        });
+        document.getElementById('emergencyReportBtn')?.addEventListener('click', () => {
+            const formDiv = document.getElementById('quickReportForm');
+            formDiv.classList.toggle('hidden');
+            if (!formDiv.classList.contains('hidden')) {
+                initReportMap();
+                setTimeout(() => google.maps.event.trigger(reportMap, 'resize'), 200);
+            }
+        });
+        document.getElementById('submitQuickReport')?.addEventListener('click', submitReport);
+        document.getElementById('cancelQuickReport')?.addEventListener('click', () => document.getElementById('quickReportForm').classList.add('hidden'));
+        document.getElementById('getLocationBtn')?.addEventListener('click', getUserLocation);
+        document.getElementById('showOfficerLoginBtn')?.addEventListener('click', showLoginModal);
+        document.getElementById('closeLoginModal')?.addEventListener('click', hideLoginModal);
+        document.getElementById('doLoginBtn')?.addEventListener('click', doLogin);
+        document.getElementById('logoutOfficerBtn')?.addEventListener('click', logoutOfficer);
+        document.getElementById('closeMapModal')?.addEventListener('click', () => document.getElementById('mapModal').classList.add('hidden'));
+        window.addEventListener('click', (e) => { if (e.target === document.getElementById('mapModal')) document.getElementById('mapModal').classList.add('hidden'); });
+
+        // Load identitas dari localStorage
+        const savedName = localStorage.getItem('currentUserName');
+        const savedPhone = localStorage.getItem('currentUserPhone');
+        if (savedName && savedPhone) {
+            document.getElementById('userName').value = savedName;
+            document.getElementById('userPhone').value = savedPhone;
+            currentUser = { name: savedName, phone: savedPhone };
+            document.getElementById('identityStatus').innerHTML = `<i class="fas fa-check-circle"></i> Identitas dimuat: ${savedName}`;
+        }
+
+        // Inisialisasi data dan peta callback global
+        window.initMapCallbacks = function() {
+            // Maps siap, tapi kita init reportMap nanti saat form dibuka
+        };
+        loadReportsFromFirebase();
+    </script>
 </body>
 </html>
