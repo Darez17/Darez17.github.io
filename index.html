@@ -167,6 +167,10 @@
         let selectedReportId = null;
         let reports = [];
         let notificationPermission = false;
+        // Listener untuk chat real-time
+        let activeMessageListener = null;
+        let activeUserChatReportId = null;
+        let userChatMessageRef = null;
 
         // Variabel Leaflet maps
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
@@ -207,41 +211,32 @@
                     if (newReport) showNotification('🚨 Laporan Baru', `${newReport.name} melaporkan ${newReport.severity}`);
                 }
 
-                reports.forEach(report => {
-                    const oldReport = oldReports.find(r => r.id === report.id);
-                    if (oldReport && oldReport.messages && report.messages) {
-                        const oldLen = oldReport.messages.length;
-                        const newLen = report.messages.length;
-                        if (newLen > oldLen) {
-                            const lastMsg = report.messages[newLen - 1];
-                            if (lastMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
-                                showNotification('💬 Pesan dari Petugas', lastMsg.text);
-                            }
-                            if (lastMsg.sender === 'user' && isOfficerLoggedIn) {
-                                showNotification(`💬 Pesan dari ${report.name}`, lastMsg.text);
-                            }
-                        }
-                    }
-                });
-
                 renderMyReports();
                 if (isOfficerLoggedIn) {
                     renderAllReportsForOfficer();
                     updateOfficerMap();
                     updateReportCount();
-                    if (selectedReportId) renderOfficerChatDetail(selectedReportId);
+                    if (selectedReportId) {
+                        // Refresh chat detail jika report yang sedang aktif masih ada
+                        const stillExists = reports.some(r => r.id === selectedReportId);
+                        if (stillExists) renderOfficerChatDetail(selectedReportId);
+                        else selectedReportId = null;
+                    }
                 }
             });
         }
 
         function sendReportToFirebase(report) { return reportsRef.push(report); }
         function updateReportStatus(reportId, newStatus) { reportsRef.child(reportId).update({ status: newStatus }); }
+        
+        // Fungsi kirim pesan dengan notifikasi real-time
         function addMessageToReport(reportId, senderRole, text) {
             const reportRef = reportsRef.child(reportId);
-            reportRef.child('messages').once('value', (snap) => {
-                let msgs = snap.val() || [];
-                msgs.push({ sender: senderRole, text: text, timestamp: new Date().toISOString() });
-                reportRef.child('messages').set(msgs);
+            const newMsgRef = reportRef.child('messages').push();
+            newMsgRef.set({
+                sender: senderRole,
+                text: text,
+                timestamp: new Date().toISOString()
             });
         }
 
@@ -342,7 +337,205 @@
             document.getElementById('navigateBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }
 
-        // ========== RENDER UI (sama seperti sebelumnya) ==========
+        // ========== CHAT REAL-TIME HELPER ==========
+        function scrollChatToBottom(containerId) {
+            const container = document.getElementById(containerId);
+            if (container) container.scrollTop = container.scrollHeight;
+        }
+
+        // Update UI chat officer (tanpa reload penuh)
+        function updateOfficerChatUI(report) {
+            const panel = document.getElementById('officerChatPanel');
+            if (!panel || selectedReportId !== report.id) return;
+            const messages = report.messages || [];
+            const messagesHtml = messages.map(msg => `
+                <div class="flex ${msg.sender === 'officer' ? 'justify-end' : 'justify-start'} mb-2">
+                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'officer' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `).join('');
+            const chatMessagesDiv = document.getElementById('officerChatMessages');
+            if (chatMessagesDiv) {
+                chatMessagesDiv.innerHTML = messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>';
+                scrollChatToBottom('officerChatMessages');
+            }
+        }
+
+        function setupOfficerMessageListener(reportId) {
+            if (activeMessageListener) activeMessageListener();
+            const msgRef = database.ref(`reports/${reportId}/messages`);
+            const listener = msgRef.on('value', (snapshot) => {
+                const report = reports.find(r => r.id === reportId);
+                if (report) {
+                    report.messages = snapshot.val() ? Object.values(snapshot.val()) : [];
+                    updateOfficerChatUI(report);
+                }
+            });
+            activeMessageListener = () => msgRef.off('value', listener);
+        }
+
+        function renderOfficerChatDetail(reportId) {
+            const report = reports.find(r => r.id === reportId);
+            const panel = document.getElementById('officerChatPanel');
+            if (!report) { panel.innerHTML = '<p class="text-gray-400">Pilih laporan</p>'; return; }
+            setupOfficerMessageListener(reportId);
+            const messagesHtml = (report.messages || []).map(msg => `
+                <div class="flex ${msg.sender === 'officer' ? 'justify-end' : 'justify-start'} mb-2">
+                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'officer' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `).join('');
+            panel.innerHTML = `
+                <div class="bg-white p-3 rounded-lg">
+                    <div class="flex justify-between items-center border-b pb-2 flex-wrap gap-2">
+                        <div><b>${escapeHtml(report.name)}</b> - ${report.phone}<br><span class="text-xs">📍 ${escapeHtml(report.location)}</span></div>
+                        <div class="flex gap-2">
+                            <select id="statusSelect" class="border rounded text-sm p-1">
+                                <option value="pending" ${report.status === 'pending' ? 'selected' : ''}>Menunggu</option>
+                                <option value="in_progress" ${report.status === 'in_progress' ? 'selected' : ''}>Dalam Perjalanan</option>
+                                <option value="done" ${report.status === 'done' ? 'selected' : ''}>Selesai</option>
+                            </select>
+                            <button id="officerViewMapBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-map"></i> Peta</button>
+                            <button id="officerWhatsAppBtn" class="bg-green-600 text-white px-2 py-1 rounded text-xs"><i class="fab fa-whatsapp"></i> WhatsApp</button>
+                        </div>
+                    </div>
+                    <div id="officerChatMessages" class="chat-box p-2 h-56 overflow-y-auto my-2">${messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>'}</div>
+                    <div class="flex gap-2">
+                        <input type="text" id="officerMsgInput" class="flex-1 border rounded px-2 py-1 text-sm" placeholder="Ketik pesan...">
+                        <button id="officerSendMsg" class="bg-blue-600 text-white px-3 py-1 rounded"><i class="fas fa-paper-plane"></i></button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('officerSendMsg')?.addEventListener('click', () => {
+                const input = document.getElementById('officerMsgInput');
+                if (input.value.trim()) {
+                    addMessageToReport(reportId, 'officer', input.value);
+                    input.value = '';
+                }
+            });
+            document.getElementById('officerViewMapBtn')?.addEventListener('click', () => showMapModal(report.latitude, report.longitude, report.location));
+            const waBtn = document.getElementById('officerWhatsAppBtn');
+            if (waBtn) {
+                waBtn.addEventListener('click', () => openWhatsApp(report.phone, `Halo ${report.name}, saya petugas Damkar. Mohon info terkini kebakaran di ${report.location}`));
+            }
+            document.getElementById('statusSelect')?.addEventListener('change', (e) => updateReportStatus(reportId, e.target.value));
+            scrollChatToBottom('officerChatMessages');
+        }
+
+        // ========== WHATSAPP INTEGRATION ==========
+        function formatPhoneForWA(phone) {
+            let clean = phone.replace(/\D/g, '');
+            if (clean.startsWith('0')) clean = '62' + clean.substring(1);
+            if (!clean.startsWith('62')) clean = '62' + clean;
+            return clean;
+        }
+        function openWhatsApp(phoneNumber, message = '') {
+            const waNumber = formatPhoneForWA(phoneNumber);
+            const encodedMsg = encodeURIComponent(message);
+            window.open(`https://wa.me/${waNumber}?text=${encodedMsg}`, '_blank');
+        }
+
+        // ========== USER CHAT MODAL REAL-TIME ==========
+        function updateUserChatModalUI(report) {
+            const modalDiv = document.getElementById('userChatModal');
+            if (!modalDiv || activeUserChatReportId !== report.id) return;
+            const messagesContainer = document.getElementById('userChatMessages');
+            if (messagesContainer) {
+                const messages = report.messages || [];
+                const html = messages.map(msg => `
+                    <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
+                        <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
+                            <p class="text-sm">${escapeHtml(msg.text)}</p>
+                            <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                    </div>
+                `).join('');
+                messagesContainer.innerHTML = html || '<p class="text-gray-400 text-center">Belum ada pesan</p>';
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+
+        function setupUserMessageListener(reportId) {
+            if (userChatMessageRef) userChatMessageRef();
+            const msgRef = database.ref(`reports/${reportId}/messages`);
+            const listener = msgRef.on('value', (snapshot) => {
+                const report = reports.find(r => r.id === reportId);
+                if (report) {
+                    report.messages = snapshot.val() ? Object.values(snapshot.val()) : [];
+                    updateUserChatModalUI(report);
+                }
+            });
+            userChatMessageRef = () => msgRef.off('value', listener);
+        }
+
+        window.openUserChat = function(reportId) {
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            if (currentUser.name !== report.name || currentUser.phone !== report.phone) {
+                alert("Identitas tidak cocok dengan laporan!");
+                return;
+            }
+            if (document.getElementById('userChatModal')) {
+                document.getElementById('userChatModal').remove();
+            }
+            activeUserChatReportId = reportId;
+            setupUserMessageListener(reportId);
+            const modalHtml = `
+                <div id="userChatModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                        <div class="bg-red-600 text-white p-3 flex justify-between">
+                            <h3 class="font-bold">Chat dengan Petugas</h3>
+                            <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
+                        </div>
+                        <div class="p-2 border-b">📍 ${escapeHtml(report.location)}</div>
+                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto" style="max-height: 60vh;">${renderUserMessages(report.messages || [])}</div>
+                        <div class="p-3 border-t flex gap-2">
+                            <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
+                            <button id="userSendMsgBtn" class="bg-red-600 text-white px-3 rounded"><i class="fas fa-paper-plane"></i></button>
+                            <button id="userWhatsAppBtn" class="bg-green-600 text-white px-3 rounded"><i class="fab fa-whatsapp"></i></button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            document.getElementById('userSendMsgBtn')?.addEventListener('click', () => {
+                const input = document.getElementById('userMsgInput');
+                if (input.value.trim()) {
+                    addMessageToReport(reportId, 'user', input.value);
+                    input.value = '';
+                }
+            });
+            const waUserBtn = document.getElementById('userWhatsAppBtn');
+            if (waUserBtn) {
+                waUserBtn.addEventListener('click', () => openWhatsApp('112', `Halo Petugas Damkar, saya ${currentUser.name} melaporkan kebakaran di ${report.location}. Mohon bantuan.`));
+            }
+            const chatDiv = document.getElementById('userChatMessages');
+            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+        };
+        window.closeUserChatModal = function() {
+            if (userChatMessageRef) userChatMessageRef();
+            activeUserChatReportId = null;
+            const modal = document.getElementById('userChatModal');
+            if (modal) modal.remove();
+        };
+
+        function renderUserMessages(messages) {
+            if (!messages.length) return '<p class="text-gray-400 text-center">Belum ada percakapan</p>';
+            return messages.map(msg => `
+                <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
+                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ========== RENDER UI ==========
         function renderMyReports() {
             const container = document.getElementById('myReportsList');
             if (!container) return;
@@ -394,102 +587,14 @@
             `).join('');
         }
 
-        function renderOfficerChatDetail(reportId) {
-            const report = reports.find(r => r.id === reportId);
-            const panel = document.getElementById('officerChatPanel');
-            if (!report) { panel.innerHTML = '<p class="text-gray-400">Pilih laporan</p>'; return; }
-            const messagesHtml = (report.messages || []).map(msg => `
-                <div class="flex ${msg.sender === 'officer' ? 'justify-end' : 'justify-start'} mb-2">
-                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'officer' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">
-                        <p class="text-sm">${escapeHtml(msg.text)}</p>
-                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                </div>
-            `).join('');
-            panel.innerHTML = `
-                <div class="bg-white p-3 rounded-lg">
-                    <div class="flex justify-between items-center border-b pb-2">
-                        <div><b>${escapeHtml(report.name)}</b> - ${report.phone}<br><span class="text-xs">📍 ${escapeHtml(report.location)}</span></div>
-                        <div class="flex gap-2">
-                            <select id="statusSelect" class="border rounded text-sm p-1">
-                                <option value="pending" ${report.status === 'pending' ? 'selected' : ''}>Menunggu</option>
-                                <option value="in_progress" ${report.status === 'in_progress' ? 'selected' : ''}>Dalam Perjalanan</option>
-                                <option value="done" ${report.status === 'done' ? 'selected' : ''}>Selesai</option>
-                            </select>
-                            <button id="officerViewMapBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-map"></i> Peta</button>
-                            <button id="officerCallBtn" class="bg-green-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-phone"></i> Telepon</button>
-                        </div>
-                    </div>
-                    <div id="officerChatMessages" class="chat-box p-2 h-56 overflow-y-auto my-2">${messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>'}</div>
-                    <div class="flex gap-2">
-                        <input type="text" id="officerMsgInput" class="flex-1 border rounded px-2 py-1 text-sm" placeholder="Ketik pesan...">
-                        <button id="officerSendMsg" class="bg-blue-600 text-white px-3 py-1 rounded"><i class="fas fa-paper-plane"></i></button>
-                    </div>
-                </div>
-            `;
-            document.getElementById('officerSendMsg')?.addEventListener('click', () => {
-                const input = document.getElementById('officerMsgInput');
-                if (input.value.trim()) {
-                    addMessageToReport(reportId, 'officer', input.value);
-                    input.value = '';
-                }
-            });
-            document.getElementById('officerViewMapBtn')?.addEventListener('click', () => showMapModal(report.latitude, report.longitude, report.location));
-            document.getElementById('officerCallBtn')?.addEventListener('click', () => alert(`📞 Simulasi panggilan ke ${report.phone}`));
-            document.getElementById('statusSelect')?.addEventListener('change', (e) => updateReportStatus(reportId, e.target.value));
-            const chatDiv = document.getElementById('officerChatMessages');
-            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
-        }
-
-        window.openUserChat = function(reportId) {
-            const report = reports.find(r => r.id === reportId);
-            if (!report) return;
-            if (currentUser.name !== report.name || currentUser.phone !== report.phone) {
-                alert("Identitas tidak cocok dengan laporan!");
-                return;
-            }
-            const modalHtml = `
-                <div id="userChatModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-                        <div class="bg-red-600 text-white p-3 flex justify-between">
-                            <h3 class="font-bold">Chat dengan Petugas</h3>
-                            <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
-                        </div>
-                        <div class="p-2 border-b">📍 ${escapeHtml(report.location)}</div>
-                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto">${renderUserMessages(report.messages || [])}</div>
-                        <div class="p-3 border-t flex gap-2">
-                            <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
-                            <button id="userSendMsgBtn" class="bg-red-600 text-white px-3 rounded"><i class="fas fa-paper-plane"></i></button>
-                            <button id="userCallBtn" class="bg-green-600 text-white px-3 rounded"><i class="fas fa-phone"></i></button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            document.getElementById('userSendMsgBtn')?.addEventListener('click', () => {
-                const input = document.getElementById('userMsgInput');
-                if (input.value.trim()) {
-                    addMessageToReport(reportId, 'user', input.value);
-                    input.value = '';
-                }
-            });
-            document.getElementById('userCallBtn')?.addEventListener('click', () => alert("📞 Menghubungi posko damkar (112)"));
-            const chatDiv = document.getElementById('userChatMessages');
-            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+        function updateReportCount() { document.getElementById('reportCount').innerText = reports.length + ' laporan'; }
+        window.selectReportForOfficer = function(id) {
+            if (activeMessageListener) activeMessageListener();
+            selectedReportId = id;
+            renderAllReportsForOfficer();
+            renderOfficerChatDetail(id);
         };
-        window.closeUserChatModal = () => document.getElementById('userChatModal')?.remove();
-
-        function renderUserMessages(messages) {
-            if (!messages.length) return '<p class="text-gray-400 text-center">Belum ada percakapan</p>';
-            return messages.map(msg => `
-                <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
-                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
-                        <p class="text-sm">${escapeHtml(msg.text)}</p>
-                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                </div>
-            `).join('');
-        }
+        function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
         function submitReport() {
             const address = document.getElementById('quickAddress').value.trim();
@@ -542,6 +647,7 @@
             }).catch(err => alert('Login gagal: ' + err.message));
         }
         function logoutOfficer() {
+            if (activeMessageListener) activeMessageListener();
             auth.signOut().then(() => {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
@@ -567,10 +673,6 @@
                 document.getElementById('officerContent').classList.add('hidden');
             }
         });
-
-        function updateReportCount() { document.getElementById('reportCount').innerText = reports.length + ' laporan'; }
-        window.selectReportForOfficer = function(id) { selectedReportId = id; renderAllReportsForOfficer(); renderOfficerChatDetail(id); };
-        function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
         // ========== EVENT LISTENERS ==========
         document.addEventListener('DOMContentLoaded', () => {
