@@ -24,6 +24,8 @@
         .modal-map { height: 450px; width: 100%; }
         .report-card:hover { transform: translateY(-2px); transition: all 0.2s; }
         .leaflet-container { border-radius: 16px; }
+        .toast-notif { position: fixed; bottom: 20px; right: 20px; background: #1f2937; color: white; padding: 10px 16px; border-radius: 30px; z-index: 9999; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: fadeInUp 0.3s ease; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="p-4">
@@ -167,17 +169,16 @@
         let selectedReportId = null;
         let reports = [];
         let notificationPermission = false;
-        // Listener untuk chat real-time
-        let activeMessageListener = null;
+        let activeMessageListenerOff = null;      // untuk petugas
+        let activeUserChatListenerOff = null;     // untuk masyarakat
         let activeUserChatReportId = null;
-        let userChatMessageRef = null;
 
         // Variabel Leaflet maps
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
         let officerMap = null, officerMarkers = [];
         let modalMap = null, modalMarker = null;
 
-        // ========== NOTIFIKASI ==========
+        // ========== NOTIFIKASI & TOAST ==========
         function requestNotificationPermission() {
             if (!("Notification" in window)) return;
             if (Notification.permission === "granted") {
@@ -189,9 +190,26 @@
             }
         }
 
-        function showNotification(title, body) {
-            if (!notificationPermission) return;
-            new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' });
+        function showToast(message, icon = '💬') {
+            const toast = document.createElement('div');
+            toast.className = 'toast-notif';
+            toast.innerHTML = `<i class="fas ${icon}"></i> ${message}`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        function showNotification(title, body, tag = 'chat') {
+            if (!notificationPermission) {
+                showToast(body, 'fa-bell');
+                return;
+            }
+            new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png', tag });
+        }
+
+        // Suara notifikasi opsional (tidak mengganggu)
+        function playNotificationSound() {
+            let audio = new Audio('data:audio/wav;base64,U3RlYWx0aCBzb3VuZA=='); // dummy, tidak bersuara jika tidak support
+            audio.play().catch(e=>console.log);
         }
 
         // ========== DATA FIREBASE ==========
@@ -208,7 +226,10 @@
                 
                 if (isOfficerLoggedIn && oldReports.length < reports.length) {
                     const newReport = reports.find(r => !oldReports.some(or => or.id === r.id));
-                    if (newReport) showNotification('🚨 Laporan Baru', `${newReport.name} melaporkan ${newReport.severity}`);
+                    if (newReport) {
+                        showNotification('🚨 Laporan Baru', `${newReport.name} melaporkan ${newReport.severity}`, 'new_report');
+                        showToast(`Laporan baru dari ${newReport.name}`, 'fa-fire');
+                    }
                 }
 
                 renderMyReports();
@@ -217,7 +238,6 @@
                     updateOfficerMap();
                     updateReportCount();
                     if (selectedReportId) {
-                        // Refresh chat detail jika report yang sedang aktif masih ada
                         const stillExists = reports.some(r => r.id === selectedReportId);
                         if (stillExists) renderOfficerChatDetail(selectedReportId);
                         else selectedReportId = null;
@@ -228,19 +248,30 @@
 
         function sendReportToFirebase(report) { return reportsRef.push(report); }
         function updateReportStatus(reportId, newStatus) { reportsRef.child(reportId).update({ status: newStatus }); }
-        
-        // Fungsi kirim pesan dengan notifikasi real-time
+        function deleteReport(reportId) {
+            if (confirm("Hapus laporan ini secara permanen?")) {
+                reportsRef.child(reportId).remove().then(() => {
+                    if (selectedReportId === reportId) {
+                        selectedReportId = null;
+                        document.getElementById('officerChatPanel').innerHTML = '<p class="text-gray-400 text-center">Pilih laporan</p>';
+                    }
+                    showToast("Laporan berhasil dihapus", "fa-trash");
+                }).catch(err => alert("Gagal hapus: "+err.message));
+            }
+        }
+
+        // Fungsi kirim pesan dengan notifikasi
         function addMessageToReport(reportId, senderRole, text) {
             const reportRef = reportsRef.child(reportId);
             const newMsgRef = reportRef.child('messages').push();
-            newMsgRef.set({
+            return newMsgRef.set({
                 sender: senderRole,
                 text: text,
-                timestamp: new Date().toISOString()
+                timestamp: firebase.database.ServerValue.TIMESTAMP
             });
         }
 
-        // ========== FUNGSI PETA DENGAN LEAFLET (OpenStreetMap) ==========
+        // ========== FUNGSI PETA DENGAN LEAFLET ==========
         function initReportMap() {
             const mapDiv = document.getElementById('reportMap');
             if (!mapDiv) return;
@@ -337,16 +368,43 @@
             document.getElementById('navigateBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }
 
-        // ========== CHAT REAL-TIME HELPER ==========
-        function scrollChatToBottom(containerId) {
-            const container = document.getElementById(containerId);
-            if (container) container.scrollTop = container.scrollHeight;
+        // ========== CHAT PETUGAS DENGAN onChildAdded ==========
+        function setupOfficerMessageListener(reportId) {
+            if (activeMessageListenerOff) activeMessageListenerOff();
+            const msgRef = database.ref(`reports/${reportId}/messages`);
+            // Load existing messages once
+            msgRef.once('value', (snap) => {
+                const messages = snap.val() ? Object.values(snap.val()) : [];
+                const report = reports.find(r => r.id === reportId);
+                if (report) report.messages = messages;
+                updateOfficerChatUI(reportId);
+            });
+            // Listen for new messages only
+            const newMsgHandler = msgRef.on('child_added', (snapshot) => {
+                const newMsg = snapshot.val();
+                const report = reports.find(r => r.id === reportId);
+                if (report) {
+                    if (!report.messages) report.messages = [];
+                    report.messages.push(newMsg);
+                    updateOfficerChatUI(reportId);
+                    // Notifikasi jika pesan dari user dan petugas sedang login
+                    if (newMsg.sender === 'user' && isOfficerLoggedIn) {
+                        showNotification(`Pesan baru dari ${report.name}`, newMsg.text.substring(0, 60), `chat_${reportId}`);
+                        showToast(`📩 ${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
+                        playNotificationSound();
+                    }
+                }
+            });
+            activeMessageListenerOff = () => {
+                msgRef.off('child_added', newMsgHandler);
+                msgRef.off('value');
+            };
         }
 
-        // Update UI chat officer (tanpa reload penuh)
-        function updateOfficerChatUI(report) {
+        function updateOfficerChatUI(reportId) {
+            const report = reports.find(r => r.id === reportId);
             const panel = document.getElementById('officerChatPanel');
-            if (!panel || selectedReportId !== report.id) return;
+            if (!report || selectedReportId !== reportId) return;
             const messages = report.messages || [];
             const messagesHtml = messages.map(msg => `
                 <div class="flex ${msg.sender === 'officer' ? 'justify-end' : 'justify-start'} mb-2">
@@ -359,21 +417,8 @@
             const chatMessagesDiv = document.getElementById('officerChatMessages');
             if (chatMessagesDiv) {
                 chatMessagesDiv.innerHTML = messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>';
-                scrollChatToBottom('officerChatMessages');
+                chatMessagesDiv.scrollTop = chatMessagesDiv.scrollHeight;
             }
-        }
-
-        function setupOfficerMessageListener(reportId) {
-            if (activeMessageListener) activeMessageListener();
-            const msgRef = database.ref(`reports/${reportId}/messages`);
-            const listener = msgRef.on('value', (snapshot) => {
-                const report = reports.find(r => r.id === reportId);
-                if (report) {
-                    report.messages = snapshot.val() ? Object.values(snapshot.val()) : [];
-                    updateOfficerChatUI(report);
-                }
-            });
-            activeMessageListener = () => msgRef.off('value', listener);
         }
 
         function renderOfficerChatDetail(reportId) {
@@ -400,7 +445,7 @@
                                 <option value="done" ${report.status === 'done' ? 'selected' : ''}>Selesai</option>
                             </select>
                             <button id="officerViewMapBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-map"></i> Peta</button>
-                            <button id="officerWhatsAppBtn" class="bg-green-600 text-white px-2 py-1 rounded text-xs"><i class="fab fa-whatsapp"></i> WhatsApp</button>
+                            <button id="officerWhatsAppBtn" class="bg-green-600 text-white px-2 py-1 rounded text-xs"><i class="fab fa-whatsapp"></i> WA</button>
                         </div>
                     </div>
                     <div id="officerChatMessages" class="chat-box p-2 h-56 overflow-y-auto my-2">${messagesHtml || '<p class="text-gray-400 text-center">Belum ada pesan</p>'}</div>
@@ -418,31 +463,48 @@
                 }
             });
             document.getElementById('officerViewMapBtn')?.addEventListener('click', () => showMapModal(report.latitude, report.longitude, report.location));
-            const waBtn = document.getElementById('officerWhatsAppBtn');
-            if (waBtn) {
-                waBtn.addEventListener('click', () => openWhatsApp(report.phone, `Halo ${report.name}, saya petugas Damkar. Mohon info terkini kebakaran di ${report.location}`));
-            }
+            document.getElementById('officerWhatsAppBtn')?.addEventListener('click', () => openWhatsApp(report.phone, `Halo ${report.name}, saya petugas Damkar. Mohon info terkini kebakaran di ${report.location}`));
             document.getElementById('statusSelect')?.addEventListener('change', (e) => updateReportStatus(reportId, e.target.value));
-            scrollChatToBottom('officerChatMessages');
+            const chatDiv = document.getElementById('officerChatMessages');
+            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
         }
 
-        // ========== WHATSAPP INTEGRATION ==========
-        function formatPhoneForWA(phone) {
-            let clean = phone.replace(/\D/g, '');
-            if (clean.startsWith('0')) clean = '62' + clean.substring(1);
-            if (!clean.startsWith('62')) clean = '62' + clean;
-            return clean;
-        }
-        function openWhatsApp(phoneNumber, message = '') {
-            const waNumber = formatPhoneForWA(phoneNumber);
-            const encodedMsg = encodeURIComponent(message);
-            window.open(`https://wa.me/${waNumber}?text=${encodedMsg}`, '_blank');
+        // ========== CHAT MASYARAKAT (Modal) ==========
+        function setupUserMessageListener(reportId) {
+            if (activeUserChatListenerOff) activeUserChatListenerOff();
+            const msgRef = database.ref(`reports/${reportId}/messages`);
+            msgRef.once('value', (snap) => {
+                const messages = snap.val() ? Object.values(snap.val()) : [];
+                const report = reports.find(r => r.id === reportId);
+                if (report) report.messages = messages;
+                updateUserChatModalUI(reportId);
+            });
+            const newMsgHandler = msgRef.on('child_added', (snapshot) => {
+                const newMsg = snapshot.val();
+                const report = reports.find(r => r.id === reportId);
+                if (report) {
+                    if (!report.messages) report.messages = [];
+                    report.messages.push(newMsg);
+                    updateUserChatModalUI(reportId);
+                    // Notifikasi jika pesan dari petugas dan user sedang login (identitas cocok)
+                    if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
+                        showNotification(`Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60), `chat_user_${reportId}`);
+                        showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
+                        playNotificationSound();
+                    }
+                }
+            });
+            activeUserChatListenerOff = () => {
+                msgRef.off('child_added', newMsgHandler);
+                msgRef.off('value');
+            };
         }
 
-        // ========== USER CHAT MODAL REAL-TIME ==========
-        function updateUserChatModalUI(report) {
+        function updateUserChatModalUI(reportId) {
             const modalDiv = document.getElementById('userChatModal');
-            if (!modalDiv || activeUserChatReportId !== report.id) return;
+            if (!modalDiv || activeUserChatReportId !== reportId) return;
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
             const messagesContainer = document.getElementById('userChatMessages');
             if (messagesContainer) {
                 const messages = report.messages || [];
@@ -459,19 +521,6 @@
             }
         }
 
-        function setupUserMessageListener(reportId) {
-            if (userChatMessageRef) userChatMessageRef();
-            const msgRef = database.ref(`reports/${reportId}/messages`);
-            const listener = msgRef.on('value', (snapshot) => {
-                const report = reports.find(r => r.id === reportId);
-                if (report) {
-                    report.messages = snapshot.val() ? Object.values(snapshot.val()) : [];
-                    updateUserChatModalUI(report);
-                }
-            });
-            userChatMessageRef = () => msgRef.off('value', listener);
-        }
-
         window.openUserChat = function(reportId) {
             const report = reports.find(r => r.id === reportId);
             if (!report) return;
@@ -481,6 +530,7 @@
             }
             if (document.getElementById('userChatModal')) {
                 document.getElementById('userChatModal').remove();
+                if (activeUserChatListenerOff) activeUserChatListenerOff();
             }
             activeUserChatReportId = reportId;
             setupUserMessageListener(reportId);
@@ -492,7 +542,7 @@
                             <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
                         </div>
                         <div class="p-2 border-b">📍 ${escapeHtml(report.location)}</div>
-                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto" style="max-height: 60vh;">${renderUserMessages(report.messages || [])}</div>
+                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto" style="max-height: 60vh;"></div>
                         <div class="p-3 border-t flex gap-2">
                             <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
                             <button id="userSendMsgBtn" class="bg-red-600 text-white px-3 rounded"><i class="fas fa-paper-plane"></i></button>
@@ -509,31 +559,15 @@
                     input.value = '';
                 }
             });
-            const waUserBtn = document.getElementById('userWhatsAppBtn');
-            if (waUserBtn) {
-                waUserBtn.addEventListener('click', () => openWhatsApp('112', `Halo Petugas Damkar, saya ${currentUser.name} melaporkan kebakaran di ${report.location}. Mohon bantuan.`));
-            }
-            const chatDiv = document.getElementById('userChatMessages');
-            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+            document.getElementById('userWhatsAppBtn')?.addEventListener('click', () => openWhatsApp('112', `Halo Petugas Damkar, saya ${currentUser.name} melaporkan kebakaran di ${report.location}. Mohon bantuan.`));
+            updateUserChatModalUI(reportId);
         };
         window.closeUserChatModal = function() {
-            if (userChatMessageRef) userChatMessageRef();
+            if (activeUserChatListenerOff) activeUserChatListenerOff();
             activeUserChatReportId = null;
             const modal = document.getElementById('userChatModal');
             if (modal) modal.remove();
         };
-
-        function renderUserMessages(messages) {
-            if (!messages.length) return '<p class="text-gray-400 text-center">Belum ada percakapan</p>';
-            return messages.map(msg => `
-                <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
-                    <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
-                        <p class="text-sm">${escapeHtml(msg.text)}</p>
-                        <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                </div>
-            `).join('');
-        }
 
         // ========== RENDER UI ==========
         function renderMyReports() {
@@ -574,14 +608,17 @@
             }
             container.innerHTML = reports.map(report => `
                 <div onclick="selectReportForOfficer('${report.id}')" class="border rounded-xl p-2 cursor-pointer hover:shadow-md ${selectedReportId === report.id ? 'bg-blue-50 border-blue-400' : 'bg-white'}">
-                    <div class="flex justify-between">
+                    <div class="flex justify-between items-center">
                         <div class="text-sm">
                             <b>${escapeHtml(report.name)}</b> (${report.phone})<br>
                             📍 ${escapeHtml(report.location)}<br>
                             🔥 ${report.severity}<br>
                             <span class="badge ${report.status === 'pending' ? 'bg-yellow-200' : report.status === 'in_progress' ? 'bg-blue-200' : 'bg-green-200'} px-1 rounded">${report.status || 'pending'}</span>
                         </div>
-                        <button onclick="event.stopPropagation(); showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs"><i class="fas fa-map"></i></button>
+                        <div class="flex gap-1">
+                            <button onclick="event.stopPropagation(); showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs"><i class="fas fa-map"></i></button>
+                            ${report.status === 'done' ? `<button onclick="event.stopPropagation(); deleteReport('${report.id}')" class="text-red-600 text-xs"><i class="fas fa-trash-alt"></i></button>` : ''}
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -589,7 +626,7 @@
 
         function updateReportCount() { document.getElementById('reportCount').innerText = reports.length + ' laporan'; }
         window.selectReportForOfficer = function(id) {
-            if (activeMessageListener) activeMessageListener();
+            if (activeMessageListenerOff) activeMessageListenerOff();
             selectedReportId = id;
             renderAllReportsForOfficer();
             renderOfficerChatDetail(id);
@@ -628,6 +665,13 @@
             }).catch(err => alert('Gagal kirim: ' + err.message));
         }
 
+        function openWhatsApp(phoneNumber, message = '') {
+            let clean = phoneNumber.replace(/\D/g, '');
+            if (clean.startsWith('0')) clean = '62' + clean.substring(1);
+            if (!clean.startsWith('62')) clean = '62' + clean;
+            window.open(`https://wa.me/${clean}?text=${encodeURIComponent(message)}`, '_blank');
+        }
+
         // ========== AUTH ==========
         function showLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
         function hideLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
@@ -647,7 +691,7 @@
             }).catch(err => alert('Login gagal: ' + err.message));
         }
         function logoutOfficer() {
-            if (activeMessageListener) activeMessageListener();
+            if (activeMessageListenerOff) activeMessageListenerOff();
             auth.signOut().then(() => {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
