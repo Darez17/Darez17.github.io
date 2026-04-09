@@ -176,16 +176,14 @@
         let activeMessageListenerOff = null;
         let activeUserChatListenerOff = null;
         let activeUserChatReportId = null;
-        
-        // Untuk melacak jumlah pesan terakhir per laporan (deteksi pesan baru)
-        let lastMessagesCount = new Map(); // key: reportId, value: jumlah pesan
+        let previousReportIds = new Set(); // untuk mendeteksi laporan baru
 
         // Variabel Leaflet maps
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
         let officerMap = null, officerMarkers = [];
         let modalMap = null, modalMarker = null;
 
-        // ========== NOTIFIKASI & TOAST (Support Handphone) ==========
+        // ========== NOTIFIKASI & TOAST ==========
         function requestNotificationPermission() {
             if (!("Notification" in window)) return;
             if (Notification.permission === "granted") {
@@ -212,62 +210,21 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
-        // Notifikasi dengan getaran untuk handphone
         function showNotification(title, body, tag = 'chat') {
             if (!notificationPermission) {
                 showToast(body, 'fa-bell');
                 return;
             }
-            const options = {
-                body: body,
-                icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
-                tag: tag,
-                vibrate: [200, 100, 200], // getaran untuk handphone
-                requireInteraction: true   // tetap tampil sampai diklik (di beberapa browser)
-            };
-            new Notification(title, options);
+            new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png', tag });
         }
 
+        // Suara notifikasi (menggunakan Web Audio sederhana atau file eksternal)
         function playNotificationSound() {
             try {
-                // Suara notifikasi yang lebih nyaring dan support handphone
                 const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
-                audio.volume = 0.7;
+                audio.volume = 0.5;
                 audio.play().catch(e => console.log('Audio play gagal', e));
             } catch(e) { console.log(e); }
-        }
-
-        // ========== DETEKSI PESAN BARU TANPA BUKA CHAT ==========
-        // Fungsi ini dipanggil setiap kali data laporan berubah
-        function checkForNewMessages(oldReportsMap, newReports) {
-            if (!isOfficerLoggedIn && (!currentUser.name || !currentUser.phone)) return;
-
-            for (const newReport of newReports) {
-                const oldMsgCount = lastMessagesCount.get(newReport.id) || 0;
-                const newMsgCount = newReport.messages ? newReport.messages.length : 0;
-                if (newMsgCount > oldMsgCount) {
-                    // Ada pesan baru
-                    const lastMessage = newReport.messages[newMsgCount - 1];
-                    if (!lastMessage) continue;
-
-                    // Notifikasi untuk petugas (semua pesan dari user)
-                    if (isOfficerLoggedIn && lastMessage.sender === 'user') {
-                        showNotification(`💬 Pesan dari ${newReport.name}`, lastMessage.text.substring(0, 60), `chat_${newReport.id}`);
-                        showToast(`📩 ${newReport.name}: ${lastMessage.text.substring(0, 40)}`, 'fa-comment');
-                        playNotificationSound();
-                    }
-                    // Notifikasi untuk masyarakat (hanya pesan dari petugas pada laporannya sendiri)
-                    else if (!isOfficerLoggedIn && currentUser.name && currentUser.phone &&
-                             newReport.name === currentUser.name && newReport.phone === currentUser.phone &&
-                             lastMessage.sender === 'officer') {
-                        showNotification(`👨‍🚒 Balasan Petugas Damkar`, lastMessage.text.substring(0, 60), `chat_user_${newReport.id}`);
-                        showToast(`👨‍🚒 Petugas: ${lastMessage.text.substring(0, 40)}`, 'fa-bullhorn');
-                        playNotificationSound();
-                    }
-                }
-                // Update jumlah pesan terakhir
-                lastMessagesCount.set(newReport.id, newMsgCount);
-            }
         }
 
         // ========== DATA FIREBASE ==========
@@ -275,17 +232,18 @@
             reportsRef.on('value', (snapshot) => {
                 const data = snapshot.val();
                 const oldReportsIds = new Set(reports.map(r => r.id));
-                let newReportsData = [];
                 if (data) {
-                    newReportsData = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-                    newReportsData.forEach(r => { if (!r.messages) r.messages = []; if (!r.status) r.status = 'pending'; });
+                    reports = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                    reports.forEach(r => { if (!r.messages) r.messages = []; if (!r.status) r.status = 'pending'; });
+                } else {
+                    reports = [];
                 }
                 
                 // Deteksi laporan baru untuk petugas
                 if (isOfficerLoggedIn) {
-                    const newReportsOnly = newReportsData.filter(r => !oldReportsIds.has(r.id));
-                    if (newReportsOnly.length > 0) {
-                        newReportsOnly.forEach(report => {
+                    const newReports = reports.filter(r => !oldReportsIds.has(r.id));
+                    if (newReports.length > 0) {
+                        newReports.forEach(report => {
                             showNotification('🚨 LAPORAN KEBAKARAN BARU', `${report.name} melaporkan ${report.severity} di ${report.location}`, `new_report_${report.id}`);
                             showToast(`🔥 Laporan baru: ${report.severity} oleh ${report.name}`, 'fa-fire');
                             playNotificationSound();
@@ -293,12 +251,6 @@
                     }
                 }
 
-                // Deteksi pesan baru (tanpa buka chat)
-                checkForNewMessages(null, newReportsData);
-                
-                // Update data global
-                reports = newReportsData;
-                
                 renderMyReports();
                 if (isOfficerLoggedIn) {
                     renderAllReportsForOfficer();
@@ -438,7 +390,7 @@
             document.getElementById('navigateBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }
 
-        // ========== CHAT PETUGAS (tetap sama, hanya untuk tampilan) ==========
+        // ========== CHAT PETUGAS ==========
         function setupOfficerMessageListener(reportId) {
             if (activeMessageListenerOff) activeMessageListenerOff();
             const msgRef = database.ref(`reports/${reportId}/messages`);
@@ -455,6 +407,11 @@
                     if (!report.messages) report.messages = [];
                     report.messages.push(newMsg);
                     updateOfficerChatUI(reportId);
+                    if (newMsg.sender === 'user' && isOfficerLoggedIn) {
+                        showNotification(`💬 Pesan dari ${report.name}`, newMsg.text.substring(0, 60), `chat_${reportId}`);
+                        showToast(`📩 ${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
+                        playNotificationSound();
+                    }
                 }
             });
             activeMessageListenerOff = () => {
@@ -531,7 +488,7 @@
             if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
         }
 
-        // ========== CHAT MASYARAKAT (Modal) ==========
+        // ========== CHAT MASYARAKAT ==========
         function setupUserMessageListener(reportId) {
             if (activeUserChatListenerOff) activeUserChatListenerOff();
             const msgRef = database.ref(`reports/${reportId}/messages`);
@@ -548,6 +505,11 @@
                     if (!report.messages) report.messages = [];
                     report.messages.push(newMsg);
                     updateUserChatModalUI(reportId);
+                    if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
+                        showNotification(`👨‍🚒 Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60), `chat_user_${reportId}`);
+                        showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
+                        playNotificationSound();
+                    }
                 }
             });
             activeUserChatListenerOff = () => {
@@ -739,6 +701,7 @@
                 isOfficerLoggedIn = true;
                 document.getElementById('loginGate').classList.add('hidden');
                 document.getElementById('officerContent').classList.remove('hidden');
+                // Inisialisasi peta dan muat data
                 initOfficerMap();
                 setTimeout(() => {
                     updateOfficerMap();
@@ -746,6 +709,7 @@
                     updateReportCount();
                 }, 100);
                 requestNotificationPermission();
+                // Minta izin notifikasi langsung
                 if (Notification.permission === 'default') Notification.requestPermission();
             }).catch(err => alert('Login gagal: ' + err.message));
         }
