@@ -26,6 +26,7 @@
         .leaflet-container { border-radius: 16px; }
         .toast-notif { position: fixed; bottom: 20px; right: 20px; background: #1f2937; color: white; padding: 10px 16px; border-radius: 30px; z-index: 9999; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: fadeInUp 0.3s ease; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .notification-badge { background: #ef4444; color: white; border-radius: 9999px; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
     </style>
 </head>
 <body class="p-4">
@@ -106,10 +107,13 @@
                         <button id="showOfficerLoginBtn" class="bg-blue-700 text-white px-6 py-2 rounded-lg"><i class="fas fa-sign-in-alt"></i> Login Petugas</button>
                     </div>
                     <div id="officerContent" class="hidden">
-                        <div class="flex justify-between items-center mb-3">
+                        <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
                             <h3 class="font-bold text-gray-700"><i class="fas fa-bell"></i> Semua Laporan</h3>
-                            <span id="reportCount" class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">0 laporan</span>
-                            <button id="logoutOfficerBtn" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                            <div class="flex items-center gap-2">
+                                <span id="reportCount" class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">0 laporan</span>
+                                <span id="notifStatus" class="text-xs bg-gray-200 px-2 py-1 rounded-full"><i class="fas fa-bell-slash"></i> Notifikasi off</span>
+                                <button id="logoutOfficerBtn" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                            </div>
                         </div>
                         <div id="officerMap" class="map-container" style="height: 250px;"></div>
                         <div id="allReportsList" class="space-y-3 mt-4 max-h-80 overflow-y-auto"></div>
@@ -169,9 +173,10 @@
         let selectedReportId = null;
         let reports = [];
         let notificationPermission = false;
-        let activeMessageListenerOff = null;      // untuk petugas
-        let activeUserChatListenerOff = null;     // untuk masyarakat
+        let activeMessageListenerOff = null;
+        let activeUserChatListenerOff = null;
         let activeUserChatReportId = null;
+        let previousReportIds = new Set(); // untuk mendeteksi laporan baru
 
         // Variabel Leaflet maps
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
@@ -183,10 +188,17 @@
             if (!("Notification" in window)) return;
             if (Notification.permission === "granted") {
                 notificationPermission = true;
+                document.getElementById('notifStatus') && (document.getElementById('notifStatus').innerHTML = '<i class="fas fa-bell"></i> Notifikasi aktif');
             } else if (Notification.permission !== "denied") {
                 Notification.requestPermission().then(permission => {
                     notificationPermission = permission === "granted";
+                    if (document.getElementById('notifStatus')) {
+                        if (notificationPermission) document.getElementById('notifStatus').innerHTML = '<i class="fas fa-bell"></i> Notifikasi aktif';
+                        else document.getElementById('notifStatus').innerHTML = '<i class="fas fa-bell-slash"></i> Notifikasi diblokir';
+                    }
                 });
+            } else {
+                document.getElementById('notifStatus') && (document.getElementById('notifStatus').innerHTML = '<i class="fas fa-bell-slash"></i> Notifikasi diblokir');
             }
         }
 
@@ -206,17 +218,20 @@
             new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png', tag });
         }
 
-        // Suara notifikasi opsional (tidak mengganggu)
+        // Suara notifikasi (menggunakan Web Audio sederhana atau file eksternal)
         function playNotificationSound() {
-            let audio = new Audio('data:audio/wav;base64,U3RlYWx0aCBzb3VuZA=='); // dummy, tidak bersuara jika tidak support
-            audio.play().catch(e=>console.log);
+            try {
+                const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+                audio.volume = 0.5;
+                audio.play().catch(e => console.log('Audio play gagal', e));
+            } catch(e) { console.log(e); }
         }
 
         // ========== DATA FIREBASE ==========
         function loadReportsFromFirebase() {
             reportsRef.on('value', (snapshot) => {
                 const data = snapshot.val();
-                const oldReports = [...reports];
+                const oldReportsIds = new Set(reports.map(r => r.id));
                 if (data) {
                     reports = Object.keys(data).map(key => ({ id: key, ...data[key] }));
                     reports.forEach(r => { if (!r.messages) r.messages = []; if (!r.status) r.status = 'pending'; });
@@ -224,11 +239,15 @@
                     reports = [];
                 }
                 
-                if (isOfficerLoggedIn && oldReports.length < reports.length) {
-                    const newReport = reports.find(r => !oldReports.some(or => or.id === r.id));
-                    if (newReport) {
-                        showNotification('🚨 Laporan Baru', `${newReport.name} melaporkan ${newReport.severity}`, 'new_report');
-                        showToast(`Laporan baru dari ${newReport.name}`, 'fa-fire');
+                // Deteksi laporan baru untuk petugas
+                if (isOfficerLoggedIn) {
+                    const newReports = reports.filter(r => !oldReportsIds.has(r.id));
+                    if (newReports.length > 0) {
+                        newReports.forEach(report => {
+                            showNotification('🚨 LAPORAN KEBAKARAN BARU', `${report.name} melaporkan ${report.severity} di ${report.location}`, `new_report_${report.id}`);
+                            showToast(`🔥 Laporan baru: ${report.severity} oleh ${report.name}`, 'fa-fire');
+                            playNotificationSound();
+                        });
                     }
                 }
 
@@ -260,7 +279,6 @@
             }
         }
 
-        // Fungsi kirim pesan dengan notifikasi
         function addMessageToReport(reportId, senderRole, text) {
             const reportRef = reportsRef.child(reportId);
             const newMsgRef = reportRef.child('messages').push();
@@ -271,7 +289,7 @@
             });
         }
 
-        // ========== FUNGSI PETA DENGAN LEAFLET ==========
+        // ========== FUNGSI PETA ==========
         function initReportMap() {
             const mapDiv = document.getElementById('reportMap');
             if (!mapDiv) return;
@@ -329,9 +347,12 @@
         }
 
         function initOfficerMap() {
-            if (officerMap) return;
             const mapDiv = document.getElementById('officerMap');
             if (!mapDiv) return;
+            if (officerMap) {
+                officerMap.invalidateSize();
+                return;
+            }
             officerMap = L.map(mapDiv).setView([-3.322, 126.982], 10);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(officerMap);
             officerMarkers = [];
@@ -351,6 +372,7 @@
                 }
             });
             if (bounds.length) officerMap.fitBounds(bounds);
+            else officerMap.setView([-3.322, 126.982], 10);
         }
 
         function showMapModal(lat, lng, address) {
@@ -368,18 +390,16 @@
             document.getElementById('navigateBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }
 
-        // ========== CHAT PETUGAS DENGAN onChildAdded ==========
+        // ========== CHAT PETUGAS ==========
         function setupOfficerMessageListener(reportId) {
             if (activeMessageListenerOff) activeMessageListenerOff();
             const msgRef = database.ref(`reports/${reportId}/messages`);
-            // Load existing messages once
             msgRef.once('value', (snap) => {
                 const messages = snap.val() ? Object.values(snap.val()) : [];
                 const report = reports.find(r => r.id === reportId);
                 if (report) report.messages = messages;
                 updateOfficerChatUI(reportId);
             });
-            // Listen for new messages only
             const newMsgHandler = msgRef.on('child_added', (snapshot) => {
                 const newMsg = snapshot.val();
                 const report = reports.find(r => r.id === reportId);
@@ -387,9 +407,8 @@
                     if (!report.messages) report.messages = [];
                     report.messages.push(newMsg);
                     updateOfficerChatUI(reportId);
-                    // Notifikasi jika pesan dari user dan petugas sedang login
                     if (newMsg.sender === 'user' && isOfficerLoggedIn) {
-                        showNotification(`Pesan baru dari ${report.name}`, newMsg.text.substring(0, 60), `chat_${reportId}`);
+                        showNotification(`💬 Pesan dari ${report.name}`, newMsg.text.substring(0, 60), `chat_${reportId}`);
                         showToast(`📩 ${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
                         playNotificationSound();
                     }
@@ -469,7 +488,7 @@
             if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
         }
 
-        // ========== CHAT MASYARAKAT (Modal) ==========
+        // ========== CHAT MASYARAKAT ==========
         function setupUserMessageListener(reportId) {
             if (activeUserChatListenerOff) activeUserChatListenerOff();
             const msgRef = database.ref(`reports/${reportId}/messages`);
@@ -486,9 +505,8 @@
                     if (!report.messages) report.messages = [];
                     report.messages.push(newMsg);
                     updateUserChatModalUI(reportId);
-                    // Notifikasi jika pesan dari petugas dan user sedang login (identitas cocok)
                     if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
-                        showNotification(`Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60), `chat_user_${reportId}`);
+                        showNotification(`👨‍🚒 Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60), `chat_user_${reportId}`);
                         showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
                         playNotificationSound();
                     }
@@ -683,11 +701,16 @@
                 isOfficerLoggedIn = true;
                 document.getElementById('loginGate').classList.add('hidden');
                 document.getElementById('officerContent').classList.remove('hidden');
+                // Inisialisasi peta dan muat data
                 initOfficerMap();
-                updateOfficerMap();
-                renderAllReportsForOfficer();
-                updateReportCount();
+                setTimeout(() => {
+                    updateOfficerMap();
+                    renderAllReportsForOfficer();
+                    updateReportCount();
+                }, 100);
                 requestNotificationPermission();
+                // Minta izin notifikasi langsung
+                if (Notification.permission === 'default') Notification.requestPermission();
             }).catch(err => alert('Login gagal: ' + err.message));
         }
         function logoutOfficer() {
@@ -696,8 +719,7 @@
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
                 document.getElementById('officerContent').classList.add('hidden');
-                if (officerMap) officerMap.remove();
-                officerMap = null;
+                if (officerMap) { officerMap.remove(); officerMap = null; }
                 selectedReportId = null;
             });
         }
@@ -707,9 +729,11 @@
                 document.getElementById('loginGate').classList.add('hidden');
                 document.getElementById('officerContent').classList.remove('hidden');
                 initOfficerMap();
-                setTimeout(() => updateOfficerMap(), 200);
-                renderAllReportsForOfficer();
-                updateReportCount();
+                setTimeout(() => {
+                    updateOfficerMap();
+                    renderAllReportsForOfficer();
+                    updateReportCount();
+                }, 200);
                 requestNotificationPermission();
             } else {
                 isOfficerLoggedIn = false;
