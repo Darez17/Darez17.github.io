@@ -15,12 +15,21 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('Notifikasi latar belakang:', payload);
-  const notificationTitle = payload.notification.title;
-  const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/icon.png',
+  const { title, body } = payload.notification;
+  self.registration.showNotification(title, {
+    body: body,
+    icon: '/icon.png',      // Ganti dengan ikon Anda
     badge: '/badge.png',
-    vibrate: [200,100,200]
-  };
-  self.registration.showNotification(notificationTitle, notificationOptions);
+    vibrate: [200, 100, 200],
+    requireInteraction: true,
+    data: { url: payload.data?.clickUrl || '/' }
+  });
+});
+
+// Agar notifikasi bisa diklik dan membuka halaman
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.openWindow(event.notification.data.url)
+  );
 });
