@@ -823,11 +823,10 @@ messaging.onBackgroundMessage((payload) => {
 
             const savedName = localStorage.getItem('currentUserName');
             const savedPhone = localStorage.getItem('currentUserPhone');
-            if (savedName && savedPhone) {
-                document.getElementById('userName').value = savedName;
-                document.getElementById('userPhone').value = savedPhone;
-                currentUser = { name: savedName, phone: savedPhone };
-                document.getElementById('identityStatus').innerHTML = `<i class="fas fa-check-circle"></i> Identitas dimuat: ${savedName}`;
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/firebase-messaging-sw.js')
+                .then(reg => console.log('✅ SW registered:', reg))
+                .catch(err => console.log('❌ SW registration failed:', err));
             }
 
             loadReportsFromFirebase();
