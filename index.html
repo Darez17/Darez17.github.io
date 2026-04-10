@@ -154,6 +154,16 @@
     </div>
 
     <script>
+        <script>
+  // ... konfigurasi Firebase, dll.
+
+  // Daftarkan service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+      .then(reg => console.log('✅ SW registered:', reg))
+      .catch(err => console.log('❌ SW registration failed:', err));
+  }
+</script>
         // ========== KONFIGURASI FIREBASE ==========
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js');
