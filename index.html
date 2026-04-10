@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (Dengan Notifikasi Push)</title>
+    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (Notifikasi HP)</title>
     <!-- Tailwind & Font Awesome -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <!-- Leaflet CSS & JS (OpenStreetMap) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Firebase (App, Database, Auth, Messaging) -->
+    <!-- Firebase (App, Database, Auth) - tanpa Messaging -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
     <style>
         body { background: #f1f5f9; font-family: 'Segoe UI', system-ui; }
         .chat-box { max-height: 280px; overflow-y: auto; scroll-behavior: smooth; }
@@ -168,9 +167,7 @@
         const app = firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         const auth = firebase.auth();
-        const messaging = firebase.messaging();
         const reportsRef = database.ref('reports');
-        const officerTokensRef = database.ref('officerTokens'); // untuk menyimpan token FCM petugas
 
         // Variabel global
         let currentUser = { name: '', phone: '' };
@@ -178,125 +175,53 @@
         let selectedReportId = null;
         let reports = [];
         let previousReportIds = new Set();
-        let currentFCMToken = null;
 
         // Variabel Leaflet maps
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
         let officerMap = null, officerMarkers = [];
         let modalMap = null, modalMarker = null;
 
-        // ========== NOTIFIKASI PUSH FCM ==========
-        async function requestNotificationPermissionAndGetToken() {
+        // ========== NOTIFIKASI BROWSER (LANGSUNG) ==========
+        let notificationPermissionGranted = false;
+
+        async function requestNotificationPermission() {
             if (!isOfficerLoggedIn) return;
             try {
                 const permission = await Notification.requestPermission();
                 if (permission === 'granted') {
-                    // Dapatkan token FCM
-                    const token = await messaging.getToken({
-                        vapidKey: 'BLeiYnC9WgC7_1ZxQpR0sE3fG7hJkLmNpQrStUvWxYzA2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4' // VAPID key public (ganti dengan key dari Firebase console)
-                    });
-                    if (token) {
-                        currentFCMToken = token;
-                        // Simpan token ke database agar bisa dikirim notifikasi
-                        await officerTokensRef.child(token).set({
-                            uid: auth.currentUser?.uid,
-                            lastActive: firebase.database.ServerValue.TIMESTAMP
-                        });
-                        document.getElementById('notification-permission-status').innerHTML = '<i class="fas fa-check-circle text-green-600"></i> Notifikasi push AKTIF di HP ini';
-                        showToast('✅ Notifikasi push aktif! Laporan baru akan muncul di layar HP.', 'fa-bell');
-                    } else {
-                        document.getElementById('notification-permission-status').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Gagal dapat token FCM. Periksa koneksi.';
-                    }
+                    notificationPermissionGranted = true;
+                    document.getElementById('notification-permission-status').innerHTML = '<i class="fas fa-check-circle text-green-600"></i> Notifikasi AKTIF di HP ini. Laporan baru akan muncul.';
+                    showToast('✅ Notifikasi diaktifkan!', 'fa-bell');
                 } else {
+                    notificationPermissionGranted = false;
                     document.getElementById('notification-permission-status').innerHTML = '<i class="fas fa-ban"></i> Izin notifikasi ditolak. Aktifkan dari pengaturan browser.';
                 }
             } catch (error) {
-                console.error('Error FCM:', error);
+                console.error('Error izin notifikasi:', error);
                 document.getElementById('notification-permission-status').innerHTML = '<i class="fas fa-bug"></i> Error: ' + error.message;
             }
         }
 
-        // Fungsi mengirim notifikasi ke semua petugas via FCM (dipanggil saat laporan baru)
-        async function sendPushNotificationToOfficers(report) {
-            if (!report) return;
-            // Ambil semua token petugas dari database
-            const snapshot = await officerTokensRef.once('value');
-            const tokens = snapshot.val();
-            if (!tokens) return;
-            
-            const payload = {
-                notification: {
-                    title: `🚨 LAPORAN KEBAKARAN BARU!`,
-                    body: `${report.name} melaporkan ${report.severity} di ${report.location.substring(0, 80)}`,
-                    icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
-                    badge: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
-                    vibrate: [200, 100, 200],
-                    sound: 'default',
-                    click_action: window.location.origin
-                },
-                data: {
-                    reportId: report.id,
-                    clickUrl: window.location.href
+        function showLocalNotification(title, body, reportId = null) {
+            if (!notificationPermissionGranted) return;
+            const options = {
+                body: body,
+                icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
+                badge: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
+                vibrate: [200, 100, 200],
+                silent: false,
+                requireInteraction: true,
+                tag: `report_${reportId || Date.now()}`
+            };
+            const notification = new Notification(title, options);
+            notification.onclick = (event) => {
+                event.preventDefault();
+                window.focus();
+                if (reportId && isOfficerLoggedIn) {
+                    selectReportForOfficer(reportId);
                 }
             };
-            
-            // Kirim notifikasi ke setiap token menggunakan Firebase Cloud Messaging API
-            // Karena tidak bisa menggunakan server key di client, kita akan menggunakan firebase messaging API via service worker? 
-            // Alternatif: kita panggil fungsi cloud? Untuk demo ini, karena tidak ada server, kita akan gunakan browser Notification API sebagai fallback.
-            // Namun agar benar-benar push di HP, kita perlu menggunakan FCM. Karena terbatas, kita akan menggunakan messaging.send() hanya untuk token sendiri.
-            // Solusi: Kita buat Cloud Function? Tidak bisa di sini. Tapi kita bisa gunakan layanan pihak ketiga? 
-            // Kita implementasikan dengan cara: setiap petugas yang login mendengarkan perubahan report, lalu notifikasi lokal menggunakan Notification API.
-            // Ini sudah berfungsi di HP jika browser diizinkan. Untuk push sejati, perlu backend. 
-            // Karena user hanya minta "notifikasi di atas layar hp seperti whatsapp", kita gunakan Notification API dengan baik.
-            // Tapi agar lebih meyakinkan, kita juga akan menggunakan service worker agar notifikasi muncul saat tab tidak aktif.
-        }
-
-        // Fallback: notifikasi lokal dengan Service Worker (untuk tampil saat tab tidak aktif)
-        // Daftarkan service worker
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/firebase-messaging-sw.js')
-            .then((reg) => {
-                console.log('Service Worker registered', reg);
-            }).catch(err => console.log('SW reg failed:', err));
-        } else {
-            console.warn('Service Worker not supported');
-        }
-
-        // ========== DETEKSI LAPORAN BARU DAN NOTIFIKASI ==========
-        let lastReportCount = 0;
-        function watchNewReportsForOfficer() {
-            if (!isOfficerLoggedIn) return;
-            reportsRef.on('child_added', (snapshot) => {
-                const newReport = { id: snapshot.key, ...snapshot.val() };
-                // Cek apakah laporan ini baru (belum ada di daftar sebelumnya)
-                const exists = reports.some(r => r.id === newReport.id);
-                if (!exists && isOfficerLoggedIn) {
-                    // Tampilkan notifikasi sistem (browser) yang akan muncul di HP
-                    if (Notification.permission === 'granted') {
-                        const notificationOptions = {
-                            body: `${newReport.name} melaporkan ${newReport.severity}\n📍 ${newReport.location.substring(0, 100)}`,
-                            icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
-                            badge: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
-                            vibrate: [200, 100, 200],
-                            silent: false,
-                            requireInteraction: true,
-                            tag: `report_${newReport.id}`
-                        };
-                        const notification = new Notification('🚨 LAPORAN KEBAKARAN BARU', notificationOptions);
-                        notification.onclick = (event) => {
-                            event.preventDefault();
-                            window.focus();
-                            // Bisa scroll ke laporan tersebut
-                            if (selectReportForOfficer) selectReportForOfficer(newReport.id);
-                        };
-                        // Mainkan suara
-                        playNotificationSound();
-                        showToast(`🔥 Laporan baru: ${newReport.severity} oleh ${newReport.name}`, 'fa-fire');
-                    } else {
-                        showToast(`🔥 Laporan baru: ${newReport.severity}`, 'fa-fire');
-                    }
-                }
-            });
+            playNotificationSound();
         }
 
         function playNotificationSound() {
@@ -313,6 +238,25 @@
             toast.innerHTML = `<i class="fas ${icon}"></i> ${message}`;
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 4000);
+        }
+
+        // ========== DETEKSI LAPORAN BARU ==========
+        function watchNewReportsForOfficer() {
+            if (!isOfficerLoggedIn) return;
+            reportsRef.on('child_added', (snapshot) => {
+                const newReport = { id: snapshot.key, ...snapshot.val() };
+                // Cek apakah laporan ini benar-benar baru (belum ada di array reports)
+                const exists = reports.some(r => r.id === newReport.id);
+                if (!exists && isOfficerLoggedIn) {
+                    // Tampilkan notifikasi sistem (browser) yang akan muncul di HP
+                    showLocalNotification(
+                        '🚨 LAPORAN KEBAKARAN BARU',
+                        `${newReport.name} melaporkan ${newReport.severity}\n📍 ${newReport.location.substring(0, 100)}`,
+                        newReport.id
+                    );
+                    showToast(`🔥 Laporan baru: ${newReport.severity} oleh ${newReport.name}`, 'fa-fire');
+                }
+            });
         }
 
         // ========== DATA FIREBASE ==========
@@ -483,7 +427,7 @@
                     report.messages.push(newMsg);
                     updateOfficerChatUI(reportId);
                     if (newMsg.sender === 'user' && isOfficerLoggedIn) {
-                        showNotification(`💬 Pesan dari ${report.name}`, newMsg.text.substring(0, 60));
+                        showLocalNotification(`💬 Pesan dari ${report.name}`, newMsg.text.substring(0, 60), reportId);
                         showToast(`📩 ${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
                         playNotificationSound();
                     }
@@ -493,12 +437,6 @@
                 msgRef.off('child_added', newMsgHandler);
                 msgRef.off('value');
             };
-        }
-
-        function showNotification(title, body) {
-            if (Notification.permission === 'granted') {
-                new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' });
-            }
         }
 
         function updateOfficerChatUI(reportId) {
@@ -589,7 +527,7 @@
                     report.messages.push(newMsg);
                     updateUserChatModalUI(reportId);
                     if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
-                        showNotification(`👨‍🚒 Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60));
+                        showLocalNotification(`👨‍🚒 Pesan dari Petugas Damkar`, newMsg.text.substring(0, 60), reportId);
                         showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
                         playNotificationSound();
                     }
@@ -791,16 +729,12 @@
                     updateReportCount();
                 }, 100);
                 // Minta izin notifikasi setelah login
-                requestNotificationPermissionAndGetToken();
+                requestNotificationPermission();
                 watchNewReportsForOfficer();
             }).catch(err => alert('Login gagal: ' + err.message));
         }
         function logoutOfficer() {
             if (activeMessageListenerOff) activeMessageListenerOff();
-            // Hapus token FCM dari database
-            if (currentFCMToken) {
-                officerTokensRef.child(currentFCMToken).remove();
-            }
             auth.signOut().then(() => {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
@@ -820,7 +754,7 @@
                     renderAllReportsForOfficer();
                     updateReportCount();
                 }, 200);
-                requestNotificationPermissionAndGetToken();
+                requestNotificationPermission();
                 watchNewReportsForOfficer();
             } else {
                 isOfficerLoggedIn = false;
@@ -862,7 +796,7 @@
             document.getElementById('doLoginBtn')?.addEventListener('click', doLogin);
             document.getElementById('logoutOfficerBtn')?.addEventListener('click', logoutOfficer);
             document.getElementById('closeMapModal')?.addEventListener('click', () => document.getElementById('mapModal').classList.add('hidden'));
-            document.getElementById('enableNotificationsBtn')?.addEventListener('click', requestNotificationPermissionAndGetToken);
+            document.getElementById('enableNotificationsBtn')?.addEventListener('click', requestNotificationPermission);
 
             const savedName = localStorage.getItem('currentUserName');
             const savedPhone = localStorage.getItem('currentUserPhone');
