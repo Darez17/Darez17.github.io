@@ -16,20 +16,20 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('Notifikasi latar belakang:', payload);
   const { title, body } = payload.notification;
-  self.registration.showNotification(title, {
+  const options = {
     body: body,
-    icon: '/icon.png',      // Ganti dengan ikon Anda
-    badge: '/badge.png',
+    icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
+    badge: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png',
     vibrate: [200, 100, 200],
     requireInteraction: true,
     data: { url: payload.data?.clickUrl || '/' }
-  });
+  };
+  self.registration.showNotification(title, options);
 });
 
-// Agar notifikasi bisa diklik dan membuka halaman
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
-    clients.openWindow(event.notification.data.url)
+    clients.openWindow(event.notification.data.url || '/')
   );
 });
