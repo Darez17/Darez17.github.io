@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (ntfy.sh FIX)</title>
+    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (ntfy.sh FIX ASCII)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -54,24 +54,24 @@
 
                     <div>
                         <button id="emergencyReportBtn" class="emergency-btn w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-lg">
-                            <i class="fas fa-map-marker-alt"></i> 🚨 LAPOR KEBAKARAN DARURAT 🚨
+                            <i class="fas fa-map-marker-alt"></i> LAPOR KEBAKARAN DARURAT
                         </button>
                         <div id="quickReportForm" class="hidden mt-4 p-4 bg-red-50 rounded-xl border space-y-3">
                             <div id="reportMap" class="map-container"></div>
                             <div class="flex justify-between text-xs">
-                                <span id="selectedCoords" class="text-gray-600">📍 Klik peta untuk titik lokasi</span>
+                                <span id="selectedCoords" class="text-gray-600">Klik peta untuk titik lokasi</span>
                                 <button id="getLocationBtn" type="button" class="bg-blue-600 text-white px-2 py-1 rounded text-xs"><i class="fas fa-crosshairs"></i> Lokasi Saya</button>
                             </div>
                             <input type="text" id="quickAddress" placeholder="Detail alamat (jalan, gang, no)" class="w-full border rounded-lg px-3 py-2 text-sm">
                             <select id="quickSeverity" class="w-full border rounded-lg px-3 py-2 text-sm">
-                                <option value="Kebakaran Pemukiman">🔥 Kebakaran Pemukiman</option>
-                                <option value="Kebakaran Hutan/Lahan">🌲 Kebakaran Hutan/Lahan</option>
-                                <option value="Kebakaran Gedung">🏢 Kebakaran Gedung</option>
-                                <option value="Kebakaran Kendaraan">🚗 Kebakaran Kendaraan</option>
-                                <option value="Kebakaran Industri">🏭 Kebakaran Industri</option>
-                                <option value="Non Kebakaran">🆘 Non Kebakaran</option>
-                                <option value="Penanganan B3">☣️ Penanganan B3</option>
-                                <option value="Lain-lain">📌 Lain-lain</option>
+                                <option value="Kebakaran Pemukiman">Kebakaran Pemukiman</option>
+                                <option value="Kebakaran Hutan/Lahan">Kebakaran Hutan/Lahan</option>
+                                <option value="Kebakaran Gedung">Kebakaran Gedung</option>
+                                <option value="Kebakaran Kendaraan">Kebakaran Kendaraan</option>
+                                <option value="Kebakaran Industri">Kebakaran Industri</option>
+                                <option value="Non Kebakaran">Non Kebakaran</option>
+                                <option value="Penanganan B3">Penanganan B3</option>
+                                <option value="Lain-lain">Lain-lain</option>
                             </select>
                             <textarea id="quickDesc" rows="2" placeholder="Deskripsi (ukuran api, kondisi)" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
                             <div class="flex gap-2">
@@ -114,7 +114,7 @@
                             </div>
                         </div>
                         <div class="text-xs text-gray-500 mb-2 bg-gray-100 p-2 rounded">
-                            📱 <strong>Notifikasi ke HP (Gratis):</strong> Install app <a href="https://ntfy.sh/" target="_blank" class="text-blue-600">ntfy</a> di Android/iOS, lalu subscribe ke topic <code class="bg-gray-200 px-1 rounded">silapdam-buru</code>. Setiap laporan baru akan muncul sebagai notifikasi push.
+                            Notifikasi ke HP (Gratis): Install app <a href="https://ntfy.sh/" target="_blank" class="text-blue-600">ntfy</a> di Android/iOS, lalu subscribe ke topic <code class="bg-gray-200 px-1 rounded">silapdam-buru</code>. Setiap laporan baru akan muncul sebagai notifikasi push.
                         </div>
                         <div id="officerMap" class="map-container" style="height: 250px;"></div>
                         <div id="allReportsList" class="space-y-3 mt-4 max-h-80 overflow-y-auto"></div>
@@ -168,32 +168,38 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // ========== NTFY.SH NOTIFICATION (FIX: DIPANGGIL SAAT SUBMIT) ==========
+        // ========== NTFY.SH NOTIFICATION (FIX: ASCII HEADER) ==========
         const NTFY_TOPIC = "silapdam-buru";
         const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
 
         async function kirimNotifikasiNtfy(judul, pesan, priority = "max") {
             try {
+                // Hapus semua karakter non-ASCII (termasuk emoji) dari header Title
+                const cleanTitle = judul.replace(/[^\x00-\x7F]/g, '').trim();
+                if (!cleanTitle) {
+                    console.warn("Judul kosong setelah dibersihkan");
+                    return false;
+                }
                 const response = await fetch(NTFY_URL, {
                     method: 'POST',
                     headers: {
-                        'Title': judul,
+                        'Title': cleanTitle,
                         'Priority': priority,
-                        'Tags': 'fire,rotating_light',
+                        'Tags': 'fire',
                         'Click': window.location.href
                     },
                     body: pesan
                 });
                 if (response.ok) {
-                    console.log("✅ ntfy terkirim:", judul);
+                    console.log("ntfy terkirim:", cleanTitle);
                     return true;
                 } else {
                     const errText = await response.text();
-                    console.warn("❌ ntfy gagal:", response.status, errText);
+                    console.warn("ntfy gagal:", response.status, errText);
                     return false;
                 }
             } catch (err) {
-                console.error("❌ ntfy exception:", err);
+                console.error("ntfy exception:", err);
                 return false;
             }
         }
@@ -294,11 +300,11 @@
             reportMarker.on('dragend', () => {
                 const pos = reportMarker.getLatLng();
                 selectedLat = pos.lat; selectedLng = pos.lng;
-                document.getElementById('selectedCoords').innerHTML = `📍 Lokasi: ${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
+                document.getElementById('selectedCoords').innerHTML = `Lokasi: ${selectedLat.toFixed(5)}, ${selectedLng.toFixed(5)}`;
                 reverseGeocode(selectedLat, selectedLng);
             });
             selectedLat = lat; selectedLng = lng;
-            document.getElementById('selectedCoords').innerHTML = `📍 Lokasi: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            document.getElementById('selectedCoords').innerHTML = `Lokasi: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
             reportMap.setView([lat, lng], 16);
             reverseGeocode(lat, lng);
         }
@@ -332,7 +338,7 @@
             reports.forEach(r => {
                 if (r.latitude && r.longitude) {
                     const marker = L.marker([r.latitude, r.longitude]).addTo(officerMap);
-                    marker.bindPopup(`<b>${escapeHtml(r.name)}</b><br>📍 ${escapeHtml(r.location)}<br>🔥 ${r.severity}`);
+                    marker.bindPopup(`<b>${escapeHtml(r.name)}</b><br>${escapeHtml(r.location)}<br>${r.severity}`);
                     officerMarkers.push(marker);
                     bounds.push([r.latitude, r.longitude]);
                 }
@@ -367,8 +373,8 @@
                     report.messages.push(newMsg);
                     updateOfficerChatUI(reportId);
                     if (newMsg.sender === 'user' && isOfficerLoggedIn) {
-                        showLocalNotification(`💬 Pesan dari ${report.name}`, newMsg.text.substring(0, 60));
-                        showToast(`📩 ${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
+                        showLocalNotification(`Pesan dari ${report.name}`, newMsg.text.substring(0, 60));
+                        showToast(`${report.name}: ${newMsg.text.substring(0, 40)}`, 'fa-comment');
                         playNotificationSound();
                     }
                 }
@@ -411,7 +417,7 @@
             panel.innerHTML = `
                 <div class="bg-white p-3 rounded-lg">
                     <div class="flex justify-between items-center border-b pb-2 flex-wrap gap-2">
-                        <div><b>${escapeHtml(report.name)}</b> - ${report.phone}<br><span class="text-xs">📍 ${escapeHtml(report.location)}</span></div>
+                        <div><b>${escapeHtml(report.name)}</b> - ${report.phone}<br><span class="text-xs">${escapeHtml(report.location)}</span></div>
                         <div class="flex gap-2">
                             <select id="statusSelect" class="border rounded text-sm p-1">
                                 <option value="pending" ${report.status === 'pending' ? 'selected' : ''}>Menunggu</option>
@@ -452,8 +458,8 @@
                     report.messages.push(newMsg);
                     updateUserChatModalUI(reportId);
                     if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
-                        showLocalNotification(`👨‍🚒 Pesan dari Petugas`, newMsg.text.substring(0, 60));
-                        showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
+                        showLocalNotification(`Pesan dari Petugas`, newMsg.text.substring(0, 60));
+                        showToast(`Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
                         playNotificationSound();
                     }
                 }
@@ -494,7 +500,7 @@
                             <h3 class="font-bold">Chat dengan Petugas</h3>
                             <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
                         </div>
-                        <div class="p-2 border-b">📍 ${escapeHtml(report.location)}</div>
+                        <div class="p-2 border-b">${escapeHtml(report.location)}</div>
                         <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto" style="max-height: 60vh;"></div>
                         <div class="p-3 border-t flex gap-2">
                             <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
@@ -531,10 +537,10 @@
                 <div class="border rounded-xl p-3 shadow-sm bg-white report-card">
                     <div class="flex justify-between">
                         <div>
-                            <p class="font-bold">📍 ${escapeHtml(report.location)}</p>
+                            <p class="font-bold">${escapeHtml(report.location)}</p>
                             <p class="text-xs text-gray-500">${new Date(report.datetime).toLocaleString()}</p>
-                            <p class="text-sm">🔥 ${report.severity}</p>
-                            <p class="text-sm">📝 ${escapeHtml(report.description).substring(0, 60)}</p>
+                            <p class="text-sm">${report.severity}</p>
+                            <p class="text-sm">${escapeHtml(report.description).substring(0, 60)}</p>
                             <button onclick="showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs mt-1"><i class="fas fa-map-marker-alt"></i> Lihat Peta</button>
                         </div>
                         <button onclick="openUserChat('${report.id}')" class="bg-red-100 text-red-700 rounded-full px-3 py-1 text-sm"><i class="fas fa-comment-dots"></i> Chat</button>
@@ -552,8 +558,8 @@
                     <div class="flex justify-between items-center">
                         <div class="text-sm">
                             <b>${escapeHtml(report.name)}</b> (${report.phone})<br>
-                            📍 ${escapeHtml(report.location)}<br>
-                            🔥 ${report.severity}<br>
+                            ${escapeHtml(report.location)}<br>
+                            ${report.severity}<br>
                             <span class="badge ${report.status === 'pending' ? 'bg-yellow-200' : report.status === 'in_progress' ? 'bg-blue-200' : 'bg-green-200'} px-1 rounded">${report.status || 'pending'}</span>
                         </div>
                         <div class="flex gap-1">
@@ -591,14 +597,14 @@
             
             try {
                 const snapshot = await sendReportToFirebase(newReport);
-                // KIRIM NOTIFIKASI NTFY SETELAH LAPORAN TERSIMPAN
-                const judul = `🚨 LAPORAN BARU: ${severity}`;
+                // KIRIM NOTIFIKASI NTFY (tanpa emoji)
+                const judul = `LAPORAN BARU: ${severity}`;
                 const pesan = `Dari: ${currentUser.name}\nLokasi: ${address}\nDeskripsi: ${desc.substring(0, 100)}\nSegera tindak lanjuti!`;
                 const ok = await kirimNotifikasiNtfy(judul, pesan, "max");
                 if (ok) {
-                    showToast("✅ Notifikasi telah dikirim ke HP petugas", "fa-bell");
+                    showToast("Notifikasi telah dikirim ke HP petugas", "fa-bell");
                 } else {
-                    showToast("⚠️ Gagal kirim notifikasi, tapi laporan tersimpan", "fa-exclamation-triangle");
+                    showToast("Gagal kirim notifikasi, tapi laporan tersimpan", "fa-exclamation-triangle");
                 }
                 alert('Laporan terkirim! Petugas akan segera merespon.');
                 // reset form
@@ -607,7 +613,7 @@
                 document.getElementById('quickReportForm').classList.add('hidden');
                 if (reportMarker) reportMarker.remove();
                 selectedLat = selectedLng = null;
-                document.getElementById('selectedCoords').innerHTML = '📍 Klik peta untuk titik lokasi';
+                document.getElementById('selectedCoords').innerHTML = 'Klik peta untuk titik lokasi';
             } catch (err) {
                 alert('Gagal kirim: ' + err.message);
             }
@@ -652,7 +658,6 @@
                     renderAllReportsForOfficer();
                     updateReportCount();
                 }, 200);
-                // Tidak perlu watchNewReportsForOfficer lagi, karena ntfy sudah dikirim dari submit
             } else {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
@@ -687,7 +692,7 @@
             document.getElementById('logoutOfficerBtn')?.addEventListener('click', logoutOfficer);
             document.getElementById('closeMapModal')?.addEventListener('click', () => document.getElementById('mapModal').classList.add('hidden'));
             document.getElementById('testNtfyBtn')?.addEventListener('click', async () => {
-                const ok = await kirimNotifikasiNtfy("🧪 Tes Notifikasi", "Silapdam siap mengirim notifikasi ke HP Anda melalui ntfy.sh. Pastikan HP subscribe topic '" + NTFY_TOPIC + "' dan tidak dioptimasi baterai.", "default");
+                const ok = await kirimNotifikasiNtfy("Tes Notifikasi", "Silapdam siap mengirim notifikasi ke HP Anda melalui ntfy.sh. Pastikan HP subscribe topic '" + NTFY_TOPIC + "' dan tidak dioptimasi baterai.", "default");
                 if (ok) alert("Notifikasi uji coba terkirim! Periksa HP Anda.");
                 else alert("Gagal kirim test. Cek konsol F12 untuk error.");
             });
