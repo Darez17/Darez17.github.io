@@ -3,14 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (Notifikasi via ntfy.sh)</title>
-    <!-- Tailwind & Font Awesome -->
+    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (ntfy.sh FIX)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Firebase (App, Database, Auth) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -171,11 +168,11 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // ========== NTFY.SH NOTIFICATION (GRATIS, TANPA SERVER) ==========
-        const NTFY_TOPIC = "silapdam-buru";   // Ganti jika perlu, pastikan unik
+        // ========== NTFY.SH NOTIFICATION (FIX: DIPANGGIL SAAT SUBMIT) ==========
+        const NTFY_TOPIC = "silapdam-buru";
         const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
 
-        async function kirimNotifikasiNtfy(judul, pesan, priority = "high") {
+        async function kirimNotifikasiNtfy(judul, pesan, priority = "max") {
             try {
                 const response = await fetch(NTFY_URL, {
                     method: 'POST',
@@ -183,24 +180,24 @@
                         'Title': judul,
                         'Priority': priority,
                         'Tags': 'fire,rotating_light',
-                        'Click': 'https://silapdam.web.app' // ganti dengan link dashboard jika ada
+                        'Click': window.location.href
                     },
                     body: pesan
                 });
                 if (response.ok) {
-                    console.log("✅ Notifikasi ntfy terkirim:", judul);
+                    console.log("✅ ntfy terkirim:", judul);
                     return true;
                 } else {
-                    console.warn("Gagal kirim ntfy:", response.status);
+                    const errText = await response.text();
+                    console.warn("❌ ntfy gagal:", response.status, errText);
                     return false;
                 }
             } catch (err) {
-                console.error("Error ntfy:", err);
+                console.error("❌ ntfy exception:", err);
                 return false;
             }
         }
 
-        // Notifikasi lokal di browser (opsional, sebagai pelengkap)
         function showLocalNotification(title, body) {
             if (!("Notification" in window) || Notification.permission !== 'granted') return;
             new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' });
@@ -220,27 +217,6 @@
             toast.innerHTML = `<i class="fas ${icon}"></i> ${message}`;
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 4000);
-        }
-
-        // ========== DETEKSI LAPORAN BARU & KIRIM NTFY ==========
-        let newReportListenerAttached = false;
-        function watchNewReportsForOfficer() {
-            if (!isOfficerLoggedIn || newReportListenerAttached) return;
-            reportsRef.on('child_added', (snapshot) => {
-                const newReport = { id: snapshot.key, ...snapshot.val() };
-                const exists = reports.some(r => r.id === newReport.id);
-                if (!exists && isOfficerLoggedIn) {
-                    // Kirim notifikasi via ntfy.sh ke HP petugas
-                    const judul = `🚨 Laporan Baru: ${newReport.severity}`;
-                    const pesan = `Dari: ${newReport.name}\nLokasi: ${newReport.location}\nDeskripsi: ${newReport.description.substring(0, 80)}`;
-                    kirimNotifikasiNtfy(judul, pesan, "urgent");
-                    
-                    showLocalNotification(judul, pesan);
-                    showToast(`🔥 Laporan baru: ${newReport.severity} oleh ${newReport.name}`, 'fa-fire');
-                    playNotificationSound();
-                }
-            });
-            newReportListenerAttached = true;
         }
 
         // ========== CRUD FIREBASE ==========
@@ -297,7 +273,7 @@
             });
         }
 
-        // ========== PETA (sama seperti sebelumnya) ==========
+        // ========== PETA ==========
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
         let officerMap = null, officerMarkers = [];
         let modalMap = null, modalMarker = null;
@@ -599,26 +575,42 @@
 
         function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
         
-        function submitReport() {
+        // ========== SUBMIT LAPORAN (SEKALIGUS KIRIM NTFY) ==========
+        async function submitReport() {
             const address = document.getElementById('quickAddress').value.trim();
             const desc = document.getElementById('quickDesc').value.trim();
             const severity = document.getElementById('quickSeverity').value;
             if (!currentUser.name || !currentUser.phone) return alert('Set identitas dulu!');
             if (!address) return alert('Alamat wajib diisi!');
             if (!selectedLat || !selectedLng) return alert('Klik peta untuk menentukan titik lokasi kebakaran!');
+            
             const newReport = {
                 name: currentUser.name, phone: currentUser.phone, location: address, description: desc,
                 severity: severity, datetime: new Date().toISOString(), latitude: selectedLat, longitude: selectedLng, status: 'pending'
             };
-            sendReportToFirebase(newReport).then(() => {
+            
+            try {
+                const snapshot = await sendReportToFirebase(newReport);
+                // KIRIM NOTIFIKASI NTFY SETELAH LAPORAN TERSIMPAN
+                const judul = `🚨 LAPORAN BARU: ${severity}`;
+                const pesan = `Dari: ${currentUser.name}\nLokasi: ${address}\nDeskripsi: ${desc.substring(0, 100)}\nSegera tindak lanjuti!`;
+                const ok = await kirimNotifikasiNtfy(judul, pesan, "max");
+                if (ok) {
+                    showToast("✅ Notifikasi telah dikirim ke HP petugas", "fa-bell");
+                } else {
+                    showToast("⚠️ Gagal kirim notifikasi, tapi laporan tersimpan", "fa-exclamation-triangle");
+                }
                 alert('Laporan terkirim! Petugas akan segera merespon.');
+                // reset form
                 document.getElementById('quickAddress').value = '';
                 document.getElementById('quickDesc').value = '';
                 document.getElementById('quickReportForm').classList.add('hidden');
                 if (reportMarker) reportMarker.remove();
                 selectedLat = selectedLng = null;
                 document.getElementById('selectedCoords').innerHTML = '📍 Klik peta untuk titik lokasi';
-            }).catch(err => alert('Gagal kirim: ' + err.message));
+            } catch (err) {
+                alert('Gagal kirim: ' + err.message);
+            }
         }
         
         function openWhatsApp(phoneNumber, message = '') {
@@ -628,7 +620,7 @@
             window.open(`https://wa.me/${clean}?text=${encodeURIComponent(message)}`, '_blank');
         }
 
-        // ========== AUTH ==========
+        // ========== AUTH PETUGAS ==========
         function showLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
         function hideLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
         function doLogin() {
@@ -642,7 +634,6 @@
             if (activeMessageListenerOff) activeMessageListenerOff();
             auth.signOut().then(() => {
                 isOfficerLoggedIn = false;
-                newReportListenerAttached = false;
                 document.getElementById('loginGate').classList.remove('hidden');
                 document.getElementById('officerContent').classList.add('hidden');
                 if (officerMap) { officerMap.remove(); officerMap = null; }
@@ -661,7 +652,7 @@
                     renderAllReportsForOfficer();
                     updateReportCount();
                 }, 200);
-                watchNewReportsForOfficer();
+                // Tidak perlu watchNewReportsForOfficer lagi, karena ntfy sudah dikirim dari submit
             } else {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
@@ -696,9 +687,9 @@
             document.getElementById('logoutOfficerBtn')?.addEventListener('click', logoutOfficer);
             document.getElementById('closeMapModal')?.addEventListener('click', () => document.getElementById('mapModal').classList.add('hidden'));
             document.getElementById('testNtfyBtn')?.addEventListener('click', async () => {
-                const ok = await kirimNotifikasiNtfy("🧪 Tes Notifikasi", "Silapdam siap mengirim notifikasi ke HP Anda melalui ntfy.sh", "default");
-                if (ok) alert("Notifikasi uji coba terkirim! Pastikan HP sudah subscribe topic '" + NTFY_TOPIC + "' di app ntfy.");
-                else alert("Gagal kirim test. Cek koneksi internet.");
+                const ok = await kirimNotifikasiNtfy("🧪 Tes Notifikasi", "Silapdam siap mengirim notifikasi ke HP Anda melalui ntfy.sh. Pastikan HP subscribe topic '" + NTFY_TOPIC + "' dan tidak dioptimasi baterai.", "default");
+                if (ok) alert("Notifikasi uji coba terkirim! Periksa HP Anda.");
+                else alert("Gagal kirim test. Cek konsol F12 untuk error.");
             });
             
             const savedName = localStorage.getItem('currentUserName');
@@ -712,7 +703,6 @@
             }
             loadReportsFromFirebase();
 
-            // Minta izin notifikasi lokal (opsional)
             if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
                 Notification.requestPermission();
             }
