@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (Notifikasi ntfy.sh)</title>
+    <title>SILAPDAM - Laporan Kebakaran Kabupaten Buru (Notifikasi via ntfy.sh)</title>
+    <!-- Tailwind & Font Awesome -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Firebase (App, Database, Auth) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -24,7 +27,6 @@
         .toast-notif { position: fixed; bottom: 20px; right: 20px; background: #1f2937; color: white; padding: 10px 16px; border-radius: 30px; z-index: 9999; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: fadeInUp 0.3s ease; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .ntfy-badge { background: #0ea5e9; color: white; border-radius: 9999px; padding: 2px 8px; font-size: 11px; margin-left: 8px; }
-        .notif-status { font-size: 12px; margin-top: 5px; color: #4b5563; }
     </style>
 </head>
 <body class="p-4">
@@ -115,10 +117,8 @@
                             </div>
                         </div>
                         <div class="text-xs text-gray-500 mb-2 bg-gray-100 p-2 rounded">
-                            📱 <strong>Notifikasi ke HP (Gratis):</strong> Install app <a href="https://ntfy.sh/" target="_blank" class="text-blue-600">ntfy</a> di Android/iOS, lalu subscribe ke topic <code id="ntfyTopicDisplay" class="bg-gray-200 px-1 rounded">memuat...</code>. <br>
-                            ⚠️ Pastikan aplikasi ntfy di HP <strong>tidak di-battery optimization</strong> agar notifikasi muncul.
+                            📱 <strong>Notifikasi ke HP (Gratis):</strong> Install app <a href="https://ntfy.sh/" target="_blank" class="text-blue-600">ntfy</a> di Android/iOS, lalu subscribe ke topic <code class="bg-gray-200 px-1 rounded">silapdam-buru</code>. Setiap laporan baru akan muncul sebagai notifikasi push.
                         </div>
-                        <div id="ntfyStatus" class="notif-status"></div>
                         <div id="officerMap" class="map-container" style="height: 250px;"></div>
                         <div id="allReportsList" class="space-y-3 mt-4 max-h-80 overflow-y-auto"></div>
                         <div class="mt-4 border-t pt-3">
@@ -171,11 +171,8 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // ========== NTFY.SH - TOPIC UNIK (GANTI SESUAI KEBUTUHAN) ==========
-        // Gunakan tanggal untuk membuat topic semi-unik agar tidak bentrok
-        const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
-        const NTFY_TOPIC = `silapdam-buru-${today}`;  // Contoh: silapdam-buru-20260411
-        // Jika ingin topic tetap, ganti dengan string tetap seperti "silapdam-buru"
+        // ========== NTFY.SH NOTIFICATION (GRATIS, TANPA SERVER) ==========
+        const NTFY_TOPIC = "silapdam-buru";   // Ganti jika perlu, pastikan unik
         const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
 
         async function kirimNotifikasiNtfy(judul, pesan, priority = "high") {
@@ -186,7 +183,7 @@
                         'Title': judul,
                         'Priority': priority,
                         'Tags': 'fire,rotating_light',
-                        'Click': window.location.href
+                        'Click': 'https://silapdam.web.app' // ganti dengan link dashboard jika ada
                     },
                     body: pesan
                 });
@@ -194,8 +191,7 @@
                     console.log("✅ Notifikasi ntfy terkirim:", judul);
                     return true;
                 } else {
-                    const errText = await response.text();
-                    console.warn("Gagal kirim ntfy:", response.status, errText);
+                    console.warn("Gagal kirim ntfy:", response.status);
                     return false;
                 }
             } catch (err) {
@@ -204,19 +200,7 @@
             }
         }
 
-        // Fungsi untuk menampilkan status di UI
-        function updateNtfyStatus(message, isError = false) {
-            const statusDiv = document.getElementById('ntfyStatus');
-            if (statusDiv) {
-                statusDiv.innerHTML = message;
-                statusDiv.style.color = isError ? '#dc2626' : '#059669';
-                setTimeout(() => {
-                    if (statusDiv.innerHTML === message) statusDiv.innerHTML = '';
-                }, 5000);
-            }
-        }
-
-        // Notifikasi lokal di browser (opsional)
+        // Notifikasi lokal di browser (opsional, sebagai pelengkap)
         function showLocalNotification(title, body) {
             if (!("Notification" in window) || Notification.permission !== 'granted') return;
             new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913974.png' });
@@ -238,25 +222,19 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
-        // ========== DETEKSI LAPORAN BARU & KIRIM NTFY (TANPA TERGANTUNG LOGIN) ==========
+        // ========== DETEKSI LAPORAN BARU & KIRIM NTFY ==========
         let newReportListenerAttached = false;
-        function watchNewReports() {
-            if (newReportListenerAttached) return;
-            reportsRef.on('child_added', async (snapshot) => {
+        function watchNewReportsForOfficer() {
+            if (!isOfficerLoggedIn || newReportListenerAttached) return;
+            reportsRef.on('child_added', (snapshot) => {
                 const newReport = { id: snapshot.key, ...snapshot.val() };
-                // Cek apakah laporan sudah ada di array reports (untuk menghindari duplikat notifikasi saat load awal)
                 const exists = reports.some(r => r.id === newReport.id);
-                if (!exists) {
-                    // Kirim notifikasi ntfy ke semua subscriber (tanpa syarat login petugas)
+                if (!exists && isOfficerLoggedIn) {
+                    // Kirim notifikasi via ntfy.sh ke HP petugas
                     const judul = `🚨 Laporan Baru: ${newReport.severity}`;
                     const pesan = `Dari: ${newReport.name}\nLokasi: ${newReport.location}\nDeskripsi: ${newReport.description.substring(0, 80)}`;
-                    const berhasil = await kirimNotifikasiNtfy(judul, pesan, "urgent");
-                    if (berhasil) {
-                        updateNtfyStatus(`✅ Notifikasi laporan baru terkirim ke topic ${NTFY_TOPIC}`);
-                    } else {
-                        updateNtfyStatus(`❌ Gagal kirim notifikasi. Cek koneksi atau coba ganti topic.`, true);
-                    }
-                    // Notifikasi lokal jika browser diizinkan
+                    kirimNotifikasiNtfy(judul, pesan, "urgent");
+                    
                     showLocalNotification(judul, pesan);
                     showToast(`🔥 Laporan baru: ${newReport.severity} oleh ${newReport.name}`, 'fa-fire');
                     playNotificationSound();
@@ -319,7 +297,7 @@
             });
         }
 
-        // ========== PETA ==========
+        // ========== PETA (sama seperti sebelumnya) ==========
         let reportMap = null, reportMarker = null, selectedLat = null, selectedLng = null;
         let officerMap = null, officerMarkers = [];
         let modalMap = null, modalMarker = null;
@@ -401,7 +379,7 @@
             document.getElementById('navigateBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }
 
-        // ========== CHAT (sama seperti sebelumnya, dipersingkat agar tidak terlalu panjang) ==========
+        // ========== CHAT ==========
         function setupOfficerMessageListener(reportId) {
             if (activeMessageListenerOff) activeMessageListenerOff();
             const msgRef = database.ref(`reports/${reportId}/messages`);
@@ -486,11 +464,84 @@
             if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
         }
 
-        // Chat masyarakat (singkat)
-        function setupUserMessageListener(reportId) { /* sama seperti kode sebelumnya, tidak diubah */ }
-        function updateUserChatModalUI(reportId) { /* sama */ }
-        window.openUserChat = function(reportId) { /* sama */ };
-        window.closeUserChatModal = function() { /* sama */ };
+        // Chat masyarakat
+        function setupUserMessageListener(reportId) {
+            if (activeUserChatListenerOff) activeUserChatListenerOff();
+            const msgRef = database.ref(`reports/${reportId}/messages`);
+            const handler = msgRef.on('child_added', (snapshot) => {
+                const newMsg = snapshot.val();
+                const report = reports.find(r => r.id === reportId);
+                if (report) {
+                    if (!report.messages) report.messages = [];
+                    report.messages.push(newMsg);
+                    updateUserChatModalUI(reportId);
+                    if (newMsg.sender === 'officer' && currentUser.name === report.name && currentUser.phone === report.phone) {
+                        showLocalNotification(`👨‍🚒 Pesan dari Petugas`, newMsg.text.substring(0, 60));
+                        showToast(`👨‍🚒 Petugas: ${newMsg.text.substring(0, 40)}`, 'fa-bullhorn');
+                        playNotificationSound();
+                    }
+                }
+            });
+            activeUserChatListenerOff = () => msgRef.off('child_added', handler);
+        }
+        function updateUserChatModalUI(reportId) {
+            const modalDiv = document.getElementById('userChatModal');
+            if (!modalDiv || activeUserChatReportId !== reportId) return;
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            const messagesContainer = document.getElementById('userChatMessages');
+            if (messagesContainer) {
+                const messages = report.messages || [];
+                const html = messages.map(msg => `
+                    <div class="flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} mb-2">
+                        <div class="message-bubble px-3 py-2 rounded-2xl ${msg.sender === 'user' ? 'bg-red-500 text-white' : 'bg-gray-300'}">
+                            <p class="text-sm">${escapeHtml(msg.text)}</p>
+                            <p class="text-[10px] opacity-70 text-right">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                    </div>
+                `).join('');
+                messagesContainer.innerHTML = html || '<p class="text-gray-400 text-center">Belum ada pesan</p>';
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+        window.openUserChat = function(reportId) {
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            if (currentUser.name !== report.name || currentUser.phone !== report.phone) { alert("Identitas tidak cocok"); return; }
+            if (document.getElementById('userChatModal')) { document.getElementById('userChatModal').remove(); if (activeUserChatListenerOff) activeUserChatListenerOff(); }
+            activeUserChatReportId = reportId;
+            setupUserMessageListener(reportId);
+            const modalHtml = `
+                <div id="userChatModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                        <div class="bg-red-600 text-white p-3 flex justify-between">
+                            <h3 class="font-bold">Chat dengan Petugas</h3>
+                            <button onclick="closeUserChatModal()" class="text-white text-2xl">&times;</button>
+                        </div>
+                        <div class="p-2 border-b">📍 ${escapeHtml(report.location)}</div>
+                        <div id="userChatMessages" class="flex-1 chat-box p-3 bg-gray-50 overflow-y-auto" style="max-height: 60vh;"></div>
+                        <div class="p-3 border-t flex gap-2">
+                            <input type="text" id="userMsgInput" class="flex-1 border rounded px-2 py-1" placeholder="Pesan...">
+                            <button id="userSendMsgBtn" class="bg-red-600 text-white px-3 rounded"><i class="fas fa-paper-plane"></i></button>
+                            <button id="userWhatsAppBtn" class="bg-green-600 text-white px-3 rounded"><i class="fab fa-whatsapp"></i></button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            document.getElementById('userSendMsgBtn')?.addEventListener('click', () => {
+                const input = document.getElementById('userMsgInput');
+                if (input.value.trim()) { addMessageToReport(reportId, 'user', input.value); input.value = ''; }
+            });
+            document.getElementById('userWhatsAppBtn')?.addEventListener('click', () => openWhatsApp('112', `Halo Petugas Damkar, saya ${currentUser.name} melaporkan kebakaran di ${report.location}. Mohon bantuan.`));
+            updateUserChatModalUI(reportId);
+        };
+        window.closeUserChatModal = function() {
+            if (activeUserChatListenerOff) activeUserChatListenerOff();
+            activeUserChatReportId = null;
+            const modal = document.getElementById('userChatModal');
+            if (modal) modal.remove();
+        };
 
         // ========== RENDER UI ==========
         function renderMyReports() {
@@ -610,7 +661,7 @@
                     renderAllReportsForOfficer();
                     updateReportCount();
                 }, 200);
-                // Tidak perlu watchNewReports di sini karena sudah dijalankan global
+                watchNewReportsForOfficer();
             } else {
                 isOfficerLoggedIn = false;
                 document.getElementById('loginGate').classList.remove('hidden');
@@ -620,9 +671,6 @@
 
         // ========== EVENT LISTENERS ==========
         document.addEventListener('DOMContentLoaded', () => {
-            // Tampilkan topic ntfy di UI
-            document.getElementById('ntfyTopicDisplay').innerText = NTFY_TOPIC;
-            
             document.getElementById('setIdentityBtn')?.addEventListener('click', () => {
                 const name = document.getElementById('userName').value.trim();
                 const phone = document.getElementById('userPhone').value.trim();
@@ -648,15 +696,9 @@
             document.getElementById('logoutOfficerBtn')?.addEventListener('click', logoutOfficer);
             document.getElementById('closeMapModal')?.addEventListener('click', () => document.getElementById('mapModal').classList.add('hidden'));
             document.getElementById('testNtfyBtn')?.addEventListener('click', async () => {
-                updateNtfyStatus("⏳ Mengirim notifikasi uji coba...");
-                const ok = await kirimNotifikasiNtfy("🧪 Tes Notifikasi SILAPDAM", "Notifikasi ini dikirim dari sistem SILAPDAM. Jika Anda menerima pesan ini, notifikasi berfungsi dengan baik.", "default");
-                if (ok) {
-                    updateNtfyStatus(`✅ Notifikasi uji coba terkirim ke topic ${NTFY_TOPIC}. Cek HP Anda.`);
-                    alert(`Notifikasi uji coba terkirim! Pastikan HP sudah subscribe ke topic:\n${NTFY_TOPIC}\n\nJika tidak muncul, buka aplikasi ntfy, cek apakah notifikasi diizinkan dan battery optimization dimatikan.`);
-                } else {
-                    updateNtfyStatus(`❌ Gagal mengirim notifikasi uji coba. Cek koneksi internet atau coba ganti topic.`, true);
-                    alert("Gagal mengirim notifikasi. Periksa koneksi internet Anda.");
-                }
+                const ok = await kirimNotifikasiNtfy("🧪 Tes Notifikasi", "Silapdam siap mengirim notifikasi ke HP Anda melalui ntfy.sh", "default");
+                if (ok) alert("Notifikasi uji coba terkirim! Pastikan HP sudah subscribe topic '" + NTFY_TOPIC + "' di app ntfy.");
+                else alert("Gagal kirim test. Cek koneksi internet.");
             });
             
             const savedName = localStorage.getItem('currentUserName');
@@ -669,8 +711,6 @@
                 renderMyReports();
             }
             loadReportsFromFirebase();
-            // Aktifkan listener notifikasi global (tanpa tergantung login)
-            watchNewReports();
 
             // Minta izin notifikasi lokal (opsional)
             if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
