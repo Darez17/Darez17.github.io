@@ -24,6 +24,10 @@
         .toast-notif { position: fixed; bottom: 20px; right: 20px; background: #1f2937; color: white; padding: 10px 16px; border-radius: 30px; z-index: 9999; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: fadeInUp 0.3s ease; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .ntfy-badge { background: #0ea5e9; color: white; border-radius: 9999px; padding: 2px 8px; font-size: 11px; margin-left: 8px; }
+        .status-badge { font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 9999px; display: inline-block; }
+        .status-pending { background-color: #fef08a; color: #854d0e; }
+        .status-in_progress { background-color: #bfdbfe; color: #1e3a8a; }
+        .status-done { background-color: #bbf7d0; color: #14532d; }
     </style>
 </head>
 <body class="p-4">
@@ -113,7 +117,6 @@
                                 <button id="logoutOfficerBtn" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded"><i class="fas fa-sign-out-alt"></i> Logout</button>
                             </div>
                         </div>
-                        <!-- Teks instruksi ntfy telah dihapus -->
                         <div id="officerMap" class="map-container" style="height: 250px;"></div>
                         <div id="allReportsList" class="space-y-3 mt-4 max-h-80 overflow-y-auto"></div>
                         <div class="mt-4 border-t pt-3">
@@ -166,13 +169,12 @@
         const auth = firebase.auth();
         const reportsRef = database.ref('reports');
 
-        // ========== NTFY.SH NOTIFICATION (FIX: ASCII HEADER) ==========
+        // ========== NTFY.SH NOTIFICATION ==========
         const NTFY_TOPIC = "silapdam-buru";
         const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
 
         async function kirimNotifikasiNtfy(judul, pesan, priority = "max") {
             try {
-                // Hapus semua karakter non-ASCII (termasuk emoji) dari header Title
                 const cleanTitle = judul.replace(/[^\x00-\x7F]/g, '').trim();
                 if (!cleanTitle) {
                     console.warn("Judul kosong setelah dibersihkan");
@@ -523,7 +525,19 @@
             if (modal) modal.remove();
         };
 
-        // ========== RENDER UI ==========
+        // ========== RENDER UI (DENGAN STATUS UNTUK MASYARAKAT) ==========
+        function getStatusText(status) {
+            if (status === 'in_progress') return 'Dalam Perjalanan 🚒';
+            if (status === 'done') return 'Selesai ✅';
+            return 'Menunggu ⏳';
+        }
+
+        function getStatusClass(status) {
+            if (status === 'in_progress') return 'status-in_progress';
+            if (status === 'done') return 'status-done';
+            return 'status-pending';
+        }
+
         function renderMyReports() {
             const container = document.getElementById('myReportsList');
             if (!container) return;
@@ -533,15 +547,18 @@
             if (myReports.length === 0) { container.innerHTML = `<div class="text-center text-gray-400 py-6">Belum ada laporan.</div>`; return; }
             container.innerHTML = myReports.map(report => `
                 <div class="border rounded-xl p-3 shadow-sm bg-white report-card">
-                    <div class="flex justify-between">
-                        <div>
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
                             <p class="font-bold">${escapeHtml(report.location)}</p>
                             <p class="text-xs text-gray-500">${new Date(report.datetime).toLocaleString()}</p>
                             <p class="text-sm">${report.severity}</p>
                             <p class="text-sm">${escapeHtml(report.description).substring(0, 60)}</p>
-                            <button onclick="showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs mt-1"><i class="fas fa-map-marker-alt"></i> Lihat Peta</button>
+                            <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                <button onclick="showMapModal(${report.latitude}, ${report.longitude}, '${escapeHtml(report.location)}')" class="text-blue-600 text-xs"><i class="fas fa-map-marker-alt"></i> Lihat Peta</button>
+                                <span class="status-badge ${getStatusClass(report.status)}">${getStatusText(report.status)}</span>
+                            </div>
                         </div>
-                        <button onclick="openUserChat('${report.id}')" class="bg-red-100 text-red-700 rounded-full px-3 py-1 text-sm"><i class="fas fa-comment-dots"></i> Chat</button>
+                        <button onclick="openUserChat('${report.id}')" class="bg-red-100 text-red-700 rounded-full px-3 py-1 text-sm ml-2"><i class="fas fa-comment-dots"></i> Chat</button>
                     </div>
                 </div>
             `).join('');
@@ -579,7 +596,7 @@
 
         function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
         
-        // ========== SUBMIT LAPORAN (SEKALIGUS KIRIM NTFY) ==========
+        // ========== SUBMIT LAPORAN ==========
         async function submitReport() {
             const address = document.getElementById('quickAddress').value.trim();
             const desc = document.getElementById('quickDesc').value.trim();
@@ -595,7 +612,6 @@
             
             try {
                 const snapshot = await sendReportToFirebase(newReport);
-                // KIRIM NOTIFIKASI NTFY (tanpa emoji)
                 const judul = `LAPORAN BARU: ${severity}`;
                 const pesan = `Dari: ${currentUser.name}\nLokasi: ${address}\nDeskripsi: ${desc.substring(0, 100)}\nSegera tindak lanjuti!`;
                 const ok = await kirimNotifikasiNtfy(judul, pesan, "max");
@@ -605,7 +621,6 @@
                     showToast("Gagal kirim notifikasi, tapi laporan tersimpan", "fa-exclamation-triangle");
                 }
                 alert('Laporan terkirim! Petugas akan segera merespon.');
-                // reset form
                 document.getElementById('quickAddress').value = '';
                 document.getElementById('quickDesc').value = '';
                 document.getElementById('quickReportForm').classList.add('hidden');
